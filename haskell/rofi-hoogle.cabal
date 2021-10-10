@@ -23,6 +23,8 @@ library
     build-depends:  base
                   , hoogle
                   , bytestring
+                  , containers
+                  , stm
     exposed-modules: HoogleQuery
                    , HoogleQuery.SearchHoogle
 
@@ -44,6 +46,8 @@ foreign-library rofi-hoogle-native
                     , rofi-hoogle-hs
                     , hoogle
                     , bytestring
+                    , containers
+                    , stm
     hs-source-dirs:   src
     c-sources:        csrc/wrapper.c
     default-language: Haskell2010

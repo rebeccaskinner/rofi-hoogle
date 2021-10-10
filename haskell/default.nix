@@ -1,10 +1,10 @@
-{ mkDerivation, ghc, base, bytestring, hoogle, lib }:
+{ mkDerivation, lib, ghc, base, bytestring, hoogle, containers, stm }:
 
 mkDerivation rec {
   pname = "rofi-hoogle-hs";
   version = "0.1.0.0";
   src = ./.;
-  libraryHaskellDepends = [ base bytestring hoogle ];
+  libraryHaskellDepends = [ base bytestring hoogle containers stm ];
   license = lib.licenses.bsd3;
   postInstall = ''
     mv $out/lib/ghc-${ghc.version}/* $out/lib;
@@ -27,5 +27,4 @@ mkDerivation rec {
         Libs: -L$out/lib -lrofi-hoogle-native
 END
   '';
-
 }

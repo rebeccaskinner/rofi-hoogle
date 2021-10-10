@@ -85,11 +85,52 @@ static void hoogle_plugin_mode_destroy(Mode *sw) {
   stop_hs_runtime();
 }
 
+int skip_not_ready(const char* input) {
+  int paren_count = 0;
+  int last_space = 0;
+  int total_len = 0;
+  for (const char *s = input; *s != 0; s++) {
+    switch (*s) {
+    case ' ':
+      last_space++;
+      break;
+    case '(':
+      last_space = 0;
+      paren_count++;
+      break;
+    case ')':
+      last_space = 0;
+      paren_count--;
+      break;
+    default:
+      last_space = 0;
+      break;
+    }
+    total_len++;
+  }
+
+  // If the parentheses are unbalanced then never try to autocomplete.
+  // If they are balanced, autocomplete if the string ends with a
+  // double-space, or if it does not end with a space at all but is at
+  // least 15 characters long.
+  int do_process = (paren_count == 0) && ((last_space >= 2) || ((last_space == 0) && total_len >= 15));
+  printf("do_process: %d, total_len: %d, last_space: %d, paren_count: %d\n", do_process, total_len, last_space, paren_count);
+  return !do_process;
+}
+
 static char *hoogle_plugin_preprocess_input(UNUSED Mode *sw, const char *input) {
+  // skip search when there are unbalanced parentheses
+  if (skip_not_ready(input)) {
+    printf("input not ready, skipping");
+    return g_strdup(input);
+  }
+
+  printf("starting to preprocess input\n");
   char* result = search_hoogle(input);
   printf("input: %s\n", input);
   printf("result: %s\n", result);
-  return g_strdup(result);
+  printf("finished preprocessing input\n");
+  return g_strdup(input);
 }
 
 
