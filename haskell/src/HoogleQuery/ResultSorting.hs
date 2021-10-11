@@ -2,7 +2,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImportQualifiedPost        #-}
 module HoogleQuery.ResultSorting where
+import Hoogle
 import Data.Maybe
+import Data.List
+import Data.Ord
 import qualified Data.HashMap.Strict as HashMap
 
 data PackageType
@@ -81,3 +84,18 @@ defaultPackageClassification =
 classifyPackage :: PackageClassification -> String -> PackageType
 classifyPackage (PackageClassification classifications) pkgName =
   fromMaybe PackageTypeOtherLibrary $ HashMap.lookup pkgName classifications
+
+sortTargetsByClassification :: [Target] -> [Target]
+sortTargetsByClassification =
+  sortOn (classifyPackage defaultPackageClassification . maybe "" fst . targetPackage)
+
+sortTargets :: [Target] -> [[Target]]
+sortTargets =
+  HashMap.elems
+  . HashMap.map sortTargetsByClassification
+  . foldr insertTarget HashMap.empty
+  where
+    insertTarget :: Target -> HashMap.HashMap String [Target] -> HashMap.HashMap String [Target]
+    insertTarget target accumulatorMap =
+      let key = targetItem target
+      in HashMap.insertWith (<>) key [target] accumulatorMap

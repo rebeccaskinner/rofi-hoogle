@@ -24,10 +24,14 @@ library
                   , hoogle
                   , bytestring
                   , containers
+                  , unordered-containers
                   , stm
+                  , text
+                  , html-entities
     exposed-modules: HoogleQuery
                    , HoogleQuery.SearchHoogle
                    , HoogleQuery.ResultSorting
+                   , PangoUtils
 
     hs-source-dirs: src
 
@@ -38,6 +42,7 @@ foreign-library rofi-hoogle-native
     other-modules:    HoogleQuery.Native
                     , HoogleQuery.SearchHoogle
                     , HoogleQuery.ResultSorting
+                    , PangoUtils
 
     -- Modules included in this executable, other than Main.
     -- other-modules:
@@ -51,6 +56,8 @@ foreign-library rofi-hoogle-native
                     , containers
                     , unordered-containers
                     , stm
+                    , text
+                    , html-entities
     hs-source-dirs:   src
     c-sources:        csrc/wrapper.c
     default-language: Haskell2010

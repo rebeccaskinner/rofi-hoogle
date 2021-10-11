@@ -6,15 +6,19 @@
 
 
 module HoogleQuery.Native where
+import PangoUtils
+import           HoogleQuery.ResultSorting
 import           HoogleQuery.SearchHoogle
-import HoogleQuery.ResultSorting
+import Data.Text.Lazy qualified as LazyText
 
 import           Control.Monad
-import qualified Data.ByteString          as BS
+import qualified Data.ByteString           as BS
 import           Data.Foldable
 import           Data.IORef
-import Data.List
+import           Data.List
+import Data.List.NonEmpty qualified as NonEmpty
 import           Data.Maybe
+import           Data.Ord               (comparing)
 import           Foreign.C
 import           Foreign.C.String
 import           Foreign.C.Types
@@ -23,32 +27,132 @@ import           Foreign.Marshal.Alloc
 import           Foreign.Ptr
 import           Foreign.Storable
 import           Hoogle
-import           System.IO.Unsafe         (unsafePerformIO)
-import Data.Ord.HT (comparing)
+import           System.IO.Unsafe          (unsafePerformIO)
+import qualified GHC.Pack as LazyText
+
+data HoogleSecondaryResult = HoogleSecondaryResult
+  { secondaryResultURL     :: CString
+  , secondaryResultPackage :: CString
+  , secondaryResultModule  :: CString
+  , secondaryResultNext    :: Ptr HoogleSecondaryResult
+  }
+
+instance Storable HoogleSecondaryResult where
+  sizeOf _ = (3 * sizeOf @CString undefined)
+             + sizeOf @(Ptr HoogleSecondaryResult) undefined
+  alignment _ = max (alignment @CString undefined)
+                (alignment @(Ptr HoogleSecondaryResult) undefined)
+  peek inPtr = HoogleSecondaryResult
+    <$> peek (castPtr inPtr)
+    <*> peekElemOff (castPtr inPtr) 1
+    <*> peekElemOff (castPtr inPtr) 2
+    <*> peekByteOff inPtr (3 * sizeOf @CString undefined)
+
+  poke outPtr HoogleSecondaryResult{..} = do
+    poke (castPtr outPtr) secondaryResultURL
+    pokeElemOff (castPtr outPtr) 1 secondaryResultPackage
+    pokeElemOff (castPtr outPtr) 2 secondaryResultModule
+    pokeByteOff outPtr (3 * sizeOf @CString undefined) secondaryResultNext
+
+freeHoogleSecondaryResult :: Ptr HoogleSecondaryResult -> IO ()
+freeHoogleSecondaryResult p
+  | p == nullPtr = pure ()
+  | otherwise = do
+      HoogleSecondaryResult{..} <- peek p
+      free secondaryResultURL
+      when (secondaryResultPackage /= nullPtr) $
+        free secondaryResultPackage
+      when (secondaryResultModule /= nullPtr) $
+        free secondaryResultModule
+      freeHoogleSecondaryResult secondaryResultNext
+      free p
 
 data HoogleSearchResult = HoogleSearchResult
-  { searchResultURL        :: CString
-  , searchResultName       :: CString
-  , searchResultType       :: CString
-  , searchResultItem       :: CString
-  , searchResultDocPreview :: CString
+  { -- | The actual (html) name of the result
+    searchResultName                 :: CString
+  ,  -- | The URL of the primary location of this result
+    searchResultPrimaryURL           :: CString
+  ,  -- | The package name for the primary result; may be null
+    searchResultPrimaryPackage       :: CString
+  , -- | The module name for the primary result; may be null
+    searchResultPrimaryModule        :: CString
+  , -- | The number of additional results that we've found
+    searchResultSecondaryResultCount :: Int
+  , -- | The secondary results, if any (nullPtr if 'searchResultSecondaryResultCount' is 0)
+    searchResultSecondaryResults     :: Ptr HoogleSecondaryResult
   }
 
 instance Storable HoogleSearchResult where
-  sizeOf _ = 5 * sizeOf @CString undefined
-  alignment _ = alignment @CString undefined
-  peek resultPtr = HoogleSearchResult
-    <$> peekElemOff (castPtr resultPtr) 0
-    <*> peekElemOff (castPtr resultPtr) 1
-    <*> peekElemOff (castPtr resultPtr) 2
-    <*> peekElemOff (castPtr resultPtr) 3
-    <*> peekElemOff (castPtr resultPtr) 4
+  sizeOf _ = (4 * sizeOf @CString undefined)
+             + sizeOf @Int undefined
+             + sizeOf @(Ptr HoogleSecondaryResult) undefined
+  alignment _ = maximum [ alignment @CString undefined
+                        , alignment @Int undefined
+                        , alignment @(Ptr HoogleSecondaryResult) undefined
+                        ]
+  peek inPtr = HoogleSearchResult
+    <$> peek (castPtr inPtr)
+    <*> peekElemOff (castPtr inPtr) 1
+    <*> peekElemOff (castPtr inPtr) 2
+    <*> peekElemOff (castPtr inPtr) 3
+    <*> peekByteOff inPtr (4 * sizeOf @CString undefined)
+    <*> peekByteOff inPtr ((4 * sizeOf @CString undefined) + sizeOf @Int undefined)
+
   poke outPtr HoogleSearchResult{..} = do
-    pokeElemOff (castPtr outPtr) 0 searchResultURL
-    pokeElemOff (castPtr outPtr) 1 searchResultName
-    pokeElemOff (castPtr outPtr) 2 searchResultType
-    pokeElemOff (castPtr outPtr) 3 searchResultItem
-    pokeElemOff (castPtr outPtr) 4 searchResultDocPreview
+    poke (castPtr outPtr) searchResultName
+    pokeElemOff (castPtr outPtr) 1 searchResultPrimaryURL
+    pokeElemOff (castPtr outPtr) 2 searchResultPrimaryPackage
+    pokeElemOff (castPtr outPtr) 3 searchResultPrimaryModule
+    pokeByteOff outPtr (4 * sizeOf @CString undefined) searchResultSecondaryResultCount
+    pokeByteOff outPtr ((4 * sizeOf @CString undefined) + sizeOf @Int undefined) searchResultSecondaryResults
+
+freeHoogleSearchResult :: HoogleSearchResult -> IO ()
+freeHoogleSearchResult HoogleSearchResult{..} = do
+  free searchResultName
+  free searchResultPrimaryURL
+  when (searchResultPrimaryPackage /= nullPtr) $
+    free searchResultPrimaryPackage
+  when (searchResultPrimaryModule /= nullPtr) $
+    free searchResultPrimaryModule
+  freeHoogleSecondaryResult searchResultSecondaryResults
+
+freeHoogleSearchResultPtr :: Ptr HoogleSearchResult -> IO ()
+freeHoogleSearchResultPtr p =
+  if p == nullPtr
+  then pure ()
+  else peek p >>= freeHoogleSearchResult >> free p
+
+maybeCString :: Maybe String -> IO CString
+maybeCString Nothing = pure nullPtr
+maybeCString (Just s) = newCString s
+
+hoogleSearchResultFromList :: NonEmpty.NonEmpty Target -> IO HoogleSearchResult
+hoogleSearchResultFromList (primary NonEmpty.:| rest) = HoogleSearchResult
+  <$> newCString (cleanupHTML $ targetItem primary)
+  <*> newCString (targetURL primary)
+  <*> maybeCString (fst <$> targetPackage primary)
+  <*> maybeCString (fst <$> targetModule primary)
+  <*> pure (length rest)
+  <*> secondaryResultsFromList rest
+  where
+    secondaryResultsFromList [] = pure nullPtr
+    secondaryResultsFromList (result:results) = do
+      p <- malloc
+      secondaryResult <- HoogleSecondaryResult
+                         <$> newCString (targetURL result)
+                         <*> maybeCString (fst <$> targetPackage result)
+                         <*> maybeCString (fst <$> targetModule result)
+                         <*> secondaryResultsFromList results
+      poke p secondaryResult
+      pure p
+
+hoogleSearchResultFromListPtr :: [Target] -> IO (Ptr HoogleSearchResult)
+hoogleSearchResultFromListPtr [] = pure nullPtr
+hoogleSearchResultFromListPtr (primary:rest) = do
+  result <- malloc
+  searchResult <- hoogleSearchResultFromList (primary NonEmpty.:| rest)
+  poke result searchResult
+  pure result
 
 data HoogleResultSet = HoogleResultSet
   { hoogleResultValue :: HoogleSearchResult
@@ -66,6 +170,28 @@ instance Storable HoogleResultSet where
     poke (castPtr outPtr) hoogleResultValue
     pokeByteOff outPtr (sizeOf @HoogleSearchResult undefined) hoogleResultNext
 
+freeHoogleResultSet :: Ptr HoogleResultSet -> IO ()
+freeHoogleResultSet resultPtr
+  | resultPtr == nullPtr = pure ()
+  | otherwise = do
+      HoogleResultSet{..} <- peek resultPtr
+      freeHoogleSearchResult hoogleResultValue
+      freeHoogleResultSet hoogleResultNext
+      free resultPtr
+      pure ()
+
+hoogleSearchResultSetFromTargetGroups :: [[Target]] -> IO (Ptr HoogleResultSet)
+hoogleSearchResultSetFromTargetGroups [] = pure nullPtr
+hoogleSearchResultSetFromTargetGroups (target:targets) =
+  case target of
+    [] -> hoogleSearchResultSetFromTargetGroups targets
+    (t:ts) -> do
+      p <- malloc
+      poke p =<< HoogleResultSet
+        <$> hoogleSearchResultFromList (t NonEmpty.:| ts)
+        <*> hoogleSearchResultSetFromTargetGroups targets
+      pure p
+
 data HoogleSearchState = HoogleSearchState
   { hoogleStateResults     :: Ptr HoogleResultSet
   , hoogleStateResultCount :: Int
@@ -81,41 +207,6 @@ instance Storable HoogleSearchState where
     poke (castPtr outPtr) hoogleStateResults
     pokeByteOff outPtr (sizeOf @(Ptr HoogleResultSet) undefined) hoogleStateResultCount
 
-hoogleSearchResultSetToList :: HoogleResultSet -> IO [HoogleSearchResult]
-hoogleSearchResultSetToList HoogleResultSet{..} =
-  fmap (hoogleResultValue :) getTail
-  where
-    getTail =
-      if hoogleResultNext == nullPtr
-      then pure []
-      else peek hoogleResultNext >>= hoogleSearchResultSetToList
-
-hoogleSearchResultSetFromList :: [HoogleSearchResult] -> IO (Ptr HoogleResultSet)
-hoogleSearchResultSetFromList [] = pure nullPtr
-hoogleSearchResultSetFromList (r:rs) = do
-  tailPtr <- hoogleSearchResultSetFromList rs
-  p <- malloc
-  poke p (HoogleResultSet r tailPtr)
-  pure p
-
-freeHoogleSearchResult :: HoogleSearchResult -> IO ()
-freeHoogleSearchResult r@HoogleSearchResult{..} = do
-  free searchResultURL
-  free searchResultName
-  free searchResultType
-  free searchResultItem
-  free searchResultDocPreview
-
-freeHoogleResultSet :: Ptr HoogleResultSet -> IO ()
-freeHoogleResultSet resultPtr
-  | resultPtr == nullPtr = pure ()
-  | otherwise = do
-      HoogleResultSet{..} <- peek resultPtr
-      freeHoogleSearchResult hoogleResultValue
-      freeHoogleResultSet hoogleResultNext
-      free resultPtr
-      pure ()
-
 freeHoogleSearchState :: Ptr HoogleSearchState -> IO ()
 freeHoogleSearchState p
   | p == nullPtr = pure ()
@@ -124,17 +215,24 @@ freeHoogleSearchState p
       freeHoogleResultSet hoogleStateResults
       free p
 
-hoogleSearchStateFromList :: [HoogleSearchResult] -> IO (Ptr HoogleSearchState)
+hoogleSearchStateFromList :: [Target] -> IO (Ptr HoogleSearchState)
 hoogleSearchStateFromList [] = pure nullPtr
-hoogleSearchStateFromList results = do
+hoogleSearchStateFromList targets = do
+  let
+    targetGroups = sortTargets targets
+    resultCount = length targetGroups
   p <- malloc
-  resultSet <- hoogleSearchResultSetFromList results
-  poke p (HoogleSearchState resultSet (length results))
+  resultSet <- hoogleSearchResultSetFromTargetGroups targetGroups
+  poke p $ HoogleSearchState resultSet resultCount
   pure p
 
 lastResults :: IORef (Ptr HoogleSearchState)
 lastResults = unsafePerformIO $ newIORef nullPtr
 {-# NOINLINE lastResults #-}
+
+lastQuery :: IORef String
+lastQuery = unsafePerformIO $ newIORef ""
+{-# NOINLINE lastQuery #-}
 
 updateResults :: Ptr HoogleSearchState -> IO ()
 updateResults newResults = do
@@ -158,56 +256,18 @@ preprocessInput :: CString -> IO (Ptr HoogleSearchState)
 preprocessInput input = do
   dbName <- defaultDatabaseLocation
   input' <- peekCString input
-  if shouldSearchString input'
-    then withDatabase dbName (searchUpdateResults input')
-    else pure nullPtr
-
-sortTargetsByClassification :: [Target] -> [Target]
-sortTargetsByClassification =
-  sortOn (classifyPackage defaultPackageClassification . maybe "" fst . targetPackage)
+  lastQueryInput <- readIORef lastQuery
+  if input' == lastQueryInput
+    then readIORef lastResults
+    else (do
+             writeIORef lastQuery input'
+             if shouldSearchString input'
+               then withDatabase dbName (searchUpdateResults input')
+               else pure nullPtr)
 
 searchUpdateResults :: String -> Database -> IO (Ptr HoogleSearchState)
 searchUpdateResults query db = updateSearchResults $ searchDatabase db query
 
 updateSearchResults :: [Target] -> IO (Ptr HoogleSearchState)
 updateSearchResults targets =
-  traverse targetToSearchResult targets >>= hoogleSearchStateFromList >>= updateResults'
-  where
-    targetToSearchResult Target{..} =
-      let
-        packageName = fst <$> targetPackage
-        moduleName = do
-          n <- fst <$> targetModule
-          pure $ "(" <> n <> ")"
-        name = unwords . catMaybes $ [packageName, moduleName]
-      in HoogleSearchResult
-      <$> newCString targetURL
-      <*> newCString name
-      <*> newCString targetType
-      <*> newCString targetItem
-      <*> newCString ""-- targetDocs
-
-testSearchResults ::
-  String ->
-  String ->
-  String ->
-  String ->
-  String ->
-  IO HoogleSearchResult
-testSearchResults url name typ item doc = HoogleSearchResult
-  <$> newCString url
-  <*> newCString name
-  <*> newCString typ
-  <*> newCString item
-  <*> newCString doc
-
-exampleSearchState :: IO (Ptr HoogleSearchState)
-exampleSearchState = do
-  results <- sequenceA
-             [ testSearchResults "url1" "name1" "typ1" "item1" "doc1"
-             , testSearchResults "url2" "name2" "typ2" "item2" "doc2"
-             , testSearchResults "url3" "name3" "typ3" "item3" "doc3"
-             , testSearchResults "url4" "name4" "typ4" "item4" "doc4"
-             , testSearchResults "url5" "name5" "typ5" "item5" "doc5"
-             ]
-  hoogleSearchStateFromList results
+  hoogleSearchStateFromList targets >>= updateResults'

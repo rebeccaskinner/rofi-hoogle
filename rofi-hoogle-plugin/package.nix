@@ -20,6 +20,7 @@ pkgs.stdenv.mkDerivation rec {
     rofi-unwrapped
     cairo
     hs-hoogle-query
+    xdg-utils
   ];
 
   installPhase = ''
