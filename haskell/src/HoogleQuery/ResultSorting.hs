@@ -97,5 +97,5 @@ sortTargets =
   where
     insertTarget :: Target -> HashMap.HashMap String [Target] -> HashMap.HashMap String [Target]
     insertTarget target accumulatorMap =
-      let key = targetItem target
+      let key = maybe "" fst $ targetPackage target
       in HashMap.insertWith (<>) key [target] accumulatorMap
