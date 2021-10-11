@@ -24,7 +24,7 @@ pkgs.stdenv.mkDerivation rec {
   ];
 
   installPhase = ''
-    mkdir -p $out/lib
+    mkdir -p $out/lib/rofi
     make install -e INSTALL_ROOT=$out
   '';
 

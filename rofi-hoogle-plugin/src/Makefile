@@ -24,12 +24,12 @@ LFLAGS= ${LIB_LFLAGS}
 CCLS_FLAGS=
 
 .PHONY: all
-all: plugin.so
+all: rofi-hoogle.so
 
 %.o: %.c
 	$(CC) $(CFLAGS) -fPIC -c $(<) -o $(@)
 
-plugin.so: plugin.o
+rofi-hoogle.so: plugin.o
 	$(CC) $(LFLAGS) -shared -o $(@) $(<)
 
 .PHONY: clean
@@ -38,8 +38,8 @@ clean:
 	-rm -f *.o
 
 .PHONY: install
-install: plugin.so
-	cp plugin.so ${INSTALL_ROOT}/lib/plugin.so
+install: rofi-hoogle.so
+	cp rofi-hoogle.so ${INSTALL_ROOT}/lib/rofi/rofi-hoogle.so
 
 .PHONY: .ccls
 .ccls:
