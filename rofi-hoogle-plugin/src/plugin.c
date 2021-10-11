@@ -43,7 +43,7 @@ typedef struct {
 
 static void get_hoogle_plugin(UNUSED Mode *sw) {}
 
-static int hoogle_plugin_mode_init(Mode *sw) {
+static int hoogle_plugin_mode_init(UNUSED Mode *sw) {
   start_hs_runtime();
   if (NULL == mode_get_private_data(sw)) {
     hoogle_mode_private_data *private_data = g_malloc0(sizeof(*private_data));
@@ -57,6 +57,9 @@ static unsigned int hoogle_plugin_get_num_entries(const Mode *sw) {
   const hoogle_mode_private_data *private_data =
       (const hoogle_mode_private_data *)mode_get_private_data(sw);
   return private_data->array_length;
+
+  //const hoogle_search_state_t *search_state = mode_get_private_data(sw);
+
 }
 
 static ModeMode hoogle_plugin_mode_result(
@@ -118,20 +121,42 @@ int skip_not_ready(const char* input) {
   return !do_process;
 }
 
-static char *hoogle_plugin_preprocess_input(UNUSED Mode *sw, const char *input) {
-  // skip search when there are unbalanced parentheses
-  if (skip_not_ready(input)) {
-    printf("input not ready, skipping");
-    return g_strdup(input);
+void debug_hoogle_search_state(const hoogle_search_state_t *state) {
+  if (NULL == state) {
+    printf("search state is NULL\n");
+    return;
   }
+  printf("%d search results\n", state->result_count);
+  for (hoogle_result_set_t *result = state->results; result != NULL; result = result->next) {
+    printf("result info:\n");
+    printf("\tsearch_result_url: %s\n", result->search_result.search_result_url);
+    printf("\tsearch_result_name: %s\n", result->search_result.search_result_name);
+    printf("\tsearch_result_type: %s\n", result->search_result.search_result_type);
+    printf("\tsearch_result_item: %s\n", result->search_result.search_result_item);
+    printf("\tsearch_result_doc_preview: %s\n", result->search_result.search_result_doc_preview);
+    printf("\n\n");
+  }
+}
 
-  printf("starting to preprocess input\n");
-  char* result = search_hoogle(input);
-  printf("input: %s\n", input);
-  printf("result: %s\n", result);
-  printf("finished preprocessing input\n");
+
+static char *hoogle_plugin_preprocess_input(UNUSED Mode *sw, const char *input) {
+  /* hoogle_mode_private_data *private_data = (hoogle_mode_private_data*) mode_get_private_data(sw); */
+  /* // skip search when there are unbalanced parentheses */
+  /* if (skip_not_ready(input)) { */
+  /*   printf("input not ready, skipping"); */
+  /*   return g_strdup(input); */
+  /* } */
+
+  /* printf("starting to preprocess input\n"); */
+  /* char* result = search_hoogle(input); */
+  /* printf("input: %s\n", input); */
+  /* printf("result: %s\n", result); */
+  /* printf("finished preprocessing input\n"); */
+  hoogle_search_state_t *result_state = hs_preprocess_input(input);
+  debug_hoogle_search_state(result_state);
   return g_strdup(input);
 }
+
 
 
 static char *hoogle_plugin_get_display_value(

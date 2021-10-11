@@ -27,6 +27,7 @@ library
                   , stm
     exposed-modules: HoogleQuery
                    , HoogleQuery.SearchHoogle
+                   , HoogleQuery.ResultSorting
 
     hs-source-dirs: src
 
@@ -36,6 +37,7 @@ foreign-library rofi-hoogle-native
 
     other-modules:    HoogleQuery.Native
                     , HoogleQuery.SearchHoogle
+                    , HoogleQuery.ResultSorting
 
     -- Modules included in this executable, other than Main.
     -- other-modules:
@@ -47,6 +49,7 @@ foreign-library rofi-hoogle-native
                     , hoogle
                     , bytestring
                     , containers
+                    , unordered-containers
                     , stm
     hs-source-dirs:   src
     c-sources:        csrc/wrapper.c
