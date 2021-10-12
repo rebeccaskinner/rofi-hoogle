@@ -22,12 +22,18 @@ G_MODULE_EXPORT Mode mode;
 
 static int hs_runtime_is_started = 0;
 
+
 static hoogle_result_set_t* get_nth_result(hoogle_search_state_t *state, unsigned int offset) {
+  printf("Getting the %d result\n", offset);
   hoogle_result_set_t *result = NULL;
   if (NULL == state) {return NULL;}
   if (offset >= state->result_count) { return NULL; }
   result = state->results;
   for (; offset > 0; offset--) {
+    if (NULL == result) {
+      printf("unexpected null at offset %d\n", offset);
+      return NULL;
+    }
     result = result->next;
   }
   return result;
@@ -49,11 +55,6 @@ static void stop_hs_runtime() {
   hs_runtime_is_started = 0;
 }
 
-typedef struct {
-  char **array;
-  unsigned int array_length;
-} hoogle_mode_private_data;
-
 static void get_hoogle_plugin(UNUSED Mode *sw) {}
 
 static int hoogle_plugin_mode_init(UNUSED Mode *sw) {
@@ -70,6 +71,7 @@ static unsigned int hoogle_plugin_get_num_entries(const Mode *sw) {
   if (NULL == private_data) {
     return 0;
   }
+  printf("getting result count...\n");
   return private_data->result_count;
 }
 
@@ -82,7 +84,6 @@ static ModeMode hoogle_plugin_mode_result(
   printf("hoogle_plugin_mode_result\n");
   ModeMode retv = MODE_EXIT;
   hoogle_search_state_t *private_data = mode_get_private_data(sw);
-
 
   if ( mretv & MENU_NEXT ) {retv = NEXT_DIALOG;}
   else if ( mretv & MENU_PREVIOUS ) {retv = PREVIOUS_DIALOG;}
@@ -105,28 +106,11 @@ static void hoogle_plugin_mode_destroy(UNUSED Mode *sw) {
   stop_hs_runtime();
 }
 
-void debug_hoogle_search_state(const hoogle_search_state_t *state) {
-  if (NULL == state) {
-    printf("search state is NULL\n");
-    return;
-  }
-  printf("%d search results\n", state->result_count);
-  for (hoogle_result_set_t *result = state->results; result != NULL; result = result->next) {
-    printf("result info for: %s\n", result->search_result.search_result_name);
-    printf("url: %s\n", result->search_result.search_result_primary_url);
-    printf("package: %s\n", STR_OR(result->search_result.search_result_primary_package, "no package"));
-    printf("module: %s\n\n", STR_OR(result->search_result.search_result_primary_module, "no module"));
-    printf("%d secondary matches\n", result->search_result.secondary_search_result_count);
-    printf("\n\n");
-  }
-}
-
 extern void rofi_view_reload(void);
 
 static void swap_result_buffer(const void *old_state) {
   static const void *last_known_state = NULL;
   if (old_state != last_known_state) {
-    printf("flipping buffer");
     last_known_state = old_state;
     rofi_view_reload();
   }
@@ -149,25 +133,38 @@ static char *hoogle_plugin_get_display_value(
   UNUSED GList **attr_list,
   int get_entry
   ) {
+  printf("hoogle_plugin_get_display_value...\n");
 
   *state |= 8;
   if (!get_entry) { return NULL; }
+
+  printf("getting private data...\n");
   hoogle_search_state_t *private_data = mode_get_private_data(sw);
+  printf("got private data...\n");
+
   if (NULL == private_data) {
     printf("calling hoogle_plugin_get_display_value...no private data, exiting...\n");
     return g_strdup("n/a");
   }
+
+  printf("getting nth result...\n");
   hoogle_result_set_t *result = get_nth_result(private_data, selected_line);
+  printf("got nth result...\n");
+
   if (NULL == result) {
-    printf("cannot get %d result", selected_line);
+    printf("cannot get %d result\n", selected_line);
     return g_strdup("n/a");
   }
+
+  printf("got a result, showing it...\n");
+
   return(
     g_markup_printf_escaped(
-      "<span font_weight=\"bold\">%s</span>\r<span size=\"x-small\" font_weight=\"light\">%s %s</span>",
+      "<span font_weight=\"bold\">%s</span>\r<span size=\"x-small\" font_weight=\"light\">%s %s (and %d more...)</span>",
       result->search_result.search_result_name,
       STR_OR(result->search_result.search_result_primary_package, ""),
-      STR_OR(result->search_result.search_result_primary_module,"")
+      STR_OR(result->search_result.search_result_primary_module,""),
+      result->search_result.secondary_search_result_count
       )
     );
 }
@@ -181,8 +178,42 @@ static int hoogle_plugin_token_match(
 }
 
 /* formats and displays a mardown rendering of the final result */
-static char *hoogle_plugin_get_message(UNUSED const Mode *sw) {
-   return g_strdup("search must be at least 15 characters (end with two spaces to search early)");
+static char *hoogle_plugin_get_message(const Mode *sw) {
+  hoogle_search_state_t *private_data = mode_get_private_data(sw);
+  if (NULL == private_data) {
+    return NULL;
+  }
+
+  if (0 < private_data->result_count) {
+    return NULL;
+  }
+
+  /* query_info_t qinfo = private_data->last_query_info; */
+
+  /* if (qinfo.total_length == 0) { */
+  /*   return NULL; */
+  /* } */
+
+  /* if (qinfo.paren_count >= 1) { */
+  /*   return g_strdup("Missing closing paren: ')'"); */
+  /* } else if (qinfo.paren_count < 0) { */
+  /*   return g_strdup("Missing opening paren: '('"); */
+  /* } */
+
+  /* if (qinfo.bracket_count >= 1) { */
+  /*   return g_strdup("Missing closing bracket: ']'"); */
+  /* } else if (qinfo.bracket_count < 0) { */
+  /*   return g_strdup("Missing opening bracket: '['"); */
+  /* } */
+
+  /* if (qinfo.total_length <= 15 && qinfo.trailing_spaces < 2) { */
+  /*   return g_strdup_printf( */
+  /*     "Type %d more characters to auto-search\r(you can add two trailing spaces to your query to search immediately)", */
+  /*     (15 - qinfo.total_length) */
+  /*     ); */
+  /* } */
+
+  return g_strdup("Sorry, no results found for that query");
 }
 
 Mode mode = {

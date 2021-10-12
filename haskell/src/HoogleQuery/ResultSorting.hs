@@ -21,6 +21,7 @@ newtype PackageClassification = PackageClassification
   { getClassifications :: HashMap.HashMap String PackageType }
   deriving newtype (Semigroup, Monoid)
 
+{-# NOINLINE defaultPackageClassification #-}
 defaultPackageClassification :: PackageClassification
 defaultPackageClassification =
   PackageClassification . HashMap.fromList $
@@ -88,15 +89,7 @@ classifyPackage (PackageClassification classifications) pkgName =
 
 sortTargetsByClassification :: [Target] -> [Target]
 sortTargetsByClassification =
-  let
-    classification :: Target -> PackageType
-    classification p =
-      let
-        pName = maybe "" fst (targetPackage p)
-        c = classifyPackage defaultPackageClassification pName
-      in trace ("classification for " <> pName <> " is " <> show c) $ c
-  in
-    sortOn classification
+  sortOn (classifyPackage defaultPackageClassification . maybe "" fst . targetPackage)
 
 sortTargets :: [Target] -> [[Target]]
 sortTargets =

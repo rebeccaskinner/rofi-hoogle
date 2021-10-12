@@ -3,7 +3,7 @@
 
 void hs_hoogle_search_init(void) {
   int argc = 2;
-  char* argv[] = { "+RTS", "-A64m", NULL };
+  char* argv[] = { "+RTS", "-A128m", "-n4m", "-RTS", NULL };
   char **pargv = argv;
   hs_init(&argc, &pargv);
 }

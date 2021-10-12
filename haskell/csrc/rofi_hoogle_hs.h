@@ -1,9 +1,19 @@
 #ifndef __ROFI_HOOGLE_HS_H__
 #define __ROFI_HOOGLE_HS_H__
+#include <stdint.h>
 
 void hs_hoogle_search_init(void);
 void hs_hoogle_search_end(void);
 char* search_hoogle(const char *search_string);
+
+struct query_info {
+  int16_t paren_count;
+  int16_t bracket_count;
+  int16_t trailing_spaces;
+  int16_t total_length;
+};
+
+typedef struct query_info query_info_t;
 
 struct hoogle_secondary_result {
   char *secondary_result_url;
@@ -19,7 +29,7 @@ struct hoogle_search_result {
   char *search_result_primary_url;
   char *search_result_primary_package; // may be NULL
   char *search_result_primary_module;  // may be NULL
-  int secondary_search_result_count;
+  uint32_t secondary_search_result_count;
   hoogle_secondary_result_t *secondary_results;
 };
 
@@ -34,7 +44,8 @@ typedef struct hoogle_result_set hoogle_result_set_t;
 
 struct hoogle_search_state {
   hoogle_result_set_t *results;
-  unsigned int result_count;
+  uint32_t result_count;
+//  struct query_info last_query_info;
 };
 
 typedef struct hoogle_search_state hoogle_search_state_t;
