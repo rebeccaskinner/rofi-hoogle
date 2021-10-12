@@ -6,6 +6,7 @@ import Hoogle
 import Data.Maybe
 import Data.List
 import Data.Ord
+import Debug.Trace
 import qualified Data.HashMap.Strict as HashMap
 
 data PackageType
@@ -87,11 +88,20 @@ classifyPackage (PackageClassification classifications) pkgName =
 
 sortTargetsByClassification :: [Target] -> [Target]
 sortTargetsByClassification =
-  sortOn (classifyPackage defaultPackageClassification . maybe "" fst . targetPackage)
+  let
+    classification :: Target -> PackageType
+    classification p =
+      let
+        pName = maybe "" fst (targetPackage p)
+        c = classifyPackage defaultPackageClassification pName
+      in trace ("classification for " <> pName <> " is " <> show c) $ c
+  in
+    sortOn classification
 
 sortTargets :: [Target] -> [[Target]]
 sortTargets =
-  HashMap.elems
+  sortOn classifyTargetSet
+  . HashMap.elems
   . HashMap.map sortTargetsByClassification
   . foldr insertTarget HashMap.empty
   where
@@ -99,3 +109,9 @@ sortTargets =
     insertTarget target accumulatorMap =
       let key = maybe "" fst $ targetPackage target
       in HashMap.insertWith (<>) key [target] accumulatorMap
+
+    classifyTargetSet :: [Target] -> PackageType
+    classifyTargetSet [] = PackageTypeOtherLibrary
+    classifyTargetSet(t:_) =
+      let n = maybe "" fst (targetPackage t)
+      in classifyPackage defaultPackageClassification n
