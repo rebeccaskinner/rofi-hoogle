@@ -15,6 +15,13 @@ struct query_info {
 
 typedef struct query_info query_info_t;
 
+// TODO: Evaluate the structure packing here, we need it at the moment
+// because otherwise we run into unpredictable marshalling errors from
+// haskell when putting data into structures with internal
+// padding. Packing the structs fixes that issue, but might be
+// inducing a big perf cost. Probably not enough to justify a bunch of
+// extra code but maybe worth profiling.
+
 struct hoogle_secondary_result {
   char *secondary_result_url;
   char *secondary_result_package; // may be NULL
