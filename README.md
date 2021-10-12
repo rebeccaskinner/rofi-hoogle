@@ -16,11 +16,6 @@ Launch rofi with: `rofi -modi hoogle -show hoogle` and type in your query.
     characters. If you want to search something with fewer characters, enter two
     spaces at the end of your query to immediately auto-complete.
 
-### Known Issues
-
-  - Sorting is currently broken. Eventually results from base, core libraries,
-    and certain popular non-core libraries will be prioritized in the list.
-
 ## Installation
 
 ### With Home-Manager
