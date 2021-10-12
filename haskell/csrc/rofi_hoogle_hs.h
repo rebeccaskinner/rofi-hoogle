@@ -20,7 +20,7 @@ struct hoogle_secondary_result {
   char *secondary_result_package; // may be NULL
   char *secondary_result_module;  // may be NULL
   struct hoogle_secondary_result *next;
-};
+}__attribute__((packed));
 
 typedef struct hoogle_secondary_result hoogle_secondary_result_t;
 
@@ -31,14 +31,14 @@ struct hoogle_search_result {
   char *search_result_primary_module;  // may be NULL
   uint32_t secondary_search_result_count;
   hoogle_secondary_result_t *secondary_results;
-};
+} __attribute__((packed));
 
 typedef struct hoogle_search_result hoogle_search_result_t;
 
 struct hoogle_result_set {
   hoogle_search_result_t search_result;
   struct hoogle_result_set *next;
-};
+}__attribute__((packed));
 
 typedef struct hoogle_result_set hoogle_result_set_t;
 

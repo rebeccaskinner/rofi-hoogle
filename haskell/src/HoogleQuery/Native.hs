@@ -101,17 +101,17 @@ data HoogleSearchResult = HoogleSearchResult
   , -- | The module name for the primary result; may be null
     searchResultPrimaryModule        :: CString
   , -- | The number of additional results that we've found
-    searchResultSecondaryResultCount :: Int
+    searchResultSecondaryResultCount :: CUInt
   , -- | The secondary results, if any (nullPtr if 'searchResultSecondaryResultCount' is 0)
     searchResultSecondaryResults     :: Ptr HoogleSecondaryResult
   }
 
 instance Storable HoogleSearchResult where
   sizeOf _ = (4 * sizeOf @CString undefined)
-             + sizeOf @Int undefined
+             + sizeOf @CUInt undefined
              + sizeOf @(Ptr HoogleSecondaryResult) undefined
   alignment _ = maximum [ alignment @CString undefined
-                        , alignment @Int undefined
+                        , alignment @CUInt undefined
                         , alignment @(Ptr HoogleSecondaryResult) undefined
                         ]
   peek inPtr = HoogleSearchResult
@@ -120,7 +120,7 @@ instance Storable HoogleSearchResult where
     <*> peekElemOff (castPtr inPtr) 2
     <*> peekElemOff (castPtr inPtr) 3
     <*> peekByteOff inPtr (4 * sizeOf @CString undefined)
-    <*> peekByteOff inPtr ((4 * sizeOf @CString undefined) + sizeOf @Int undefined)
+    <*> peekByteOff inPtr ((4 * sizeOf @CString undefined) + sizeOf @CUInt undefined)
 
   poke outPtr HoogleSearchResult{..} = do
     poke (castPtr outPtr) searchResultName
@@ -128,7 +128,7 @@ instance Storable HoogleSearchResult where
     pokeElemOff (castPtr outPtr) 2 searchResultPrimaryPackage
     pokeElemOff (castPtr outPtr) 3 searchResultPrimaryModule
     pokeByteOff outPtr (4 * sizeOf @CString undefined) searchResultSecondaryResultCount
-    pokeByteOff outPtr ((4 * sizeOf @CString undefined) + sizeOf @Int undefined) searchResultSecondaryResults
+    pokeByteOff outPtr ((4 * sizeOf @CString undefined) + sizeOf @CUInt undefined) searchResultSecondaryResults
 
 freeHoogleSearchResult :: HoogleSearchResult -> IO ()
 freeHoogleSearchResult HoogleSearchResult{..} = do
@@ -186,8 +186,11 @@ data HoogleResultSet = HoogleResultSet
 instance Storable HoogleResultSet where
 --  sizeOf _ = sizeOf @HoogleSearchResult undefined + sizeOf @(Ptr HoogleResultSet) undefined
 --  alignment _ = max (alignment @HoogleSearchResult undefined) (alignment @(Ptr HoogleResultSet) undefined)
-  sizeOf _ = (5 * sizeOf @CString undefined) + sizeOf @(Ptr HoogleResultSet) undefined
-  alignment _ = max (alignment @CString undefined) (alignment @(Ptr HoogleResultSet) undefined)
+  sizeOf _ = sizeOf @HoogleSearchResult undefined + sizeOf @(Ptr HoogleResultSet) undefined
+  alignment _ = maximum [ alignment @HoogleSearchResult undefined
+                        , alignment @(Ptr HoogleResultSet) undefined
+                        ]
+
   peek resultPtr = HoogleResultSet
     <$> peek (castPtr resultPtr)
     <*> peekByteOff resultPtr (sizeOf @HoogleSearchResult undefined)
