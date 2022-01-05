@@ -9,14 +9,44 @@ now, but should be usable.
 
 Launch rofi with: `rofi -modi hoogle -show hoogle` and type in your query.
 
-  - rofi-hoogle will not try to auto-complete any searches with unbalanced
-    parentheses or brackets. This improves performance by not trying to search
-    too often.
-  - By default, auto-searching will only start after you've entered at least 15
-    characters. If you want to search something with fewer characters, enter two
-    spaces at the end of your query to immediately auto-complete.
+- rofi-hoogle will not try to auto-complete any searches with unbalanced
+  parentheses or brackets. This improves performance by not trying to search
+  too often.
+- By default, auto-searching will only start after you've entered at least 15
+  characters. If you want to search something with fewer characters, enter two
+  spaces at the end of your query to immediately auto-complete.
 
 ## Installation
+
+### On NixOS
+
+On NixOS you can make an overlay overriding the `plugins` argument to the `rofi` package.
+
+```nix
+{ config, pkgs, ... }:
+
+{
+  environment.systemPackages = [
+    rofiWithHoogle
+    ...
+  ];
+
+  nixpkgs.overlays = [
+    (self: super: {
+      rofiWithHoogle = let
+        rofi-hoogle-src = pkgs.fetchFromGitHub {
+          owner = "rebeccaskinner";
+          repo = "rofi-hoogle";
+          rev = "27c273ff67add68578052a13f560a08c12fa5767";
+          sha256 = "09vx9bc8s53c575haalcqkdwy44ys1j8v9k2aaly7lndr19spp8f";
+        };
+        rofi-hoogle = import "${rofi-hoogle-src}/release.nix";
+      in super.rofi.override { plugins = [ rofi-hoogle.rofi-hoogle ]; };
+    })
+    ...
+  ];
+}
+```
 
 ### With Home-Manager
 
