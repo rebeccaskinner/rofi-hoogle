@@ -1,4 +1,7 @@
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs
+, hs-hoogle-query
+, ...
+}:
 pkgs.stdenv.mkDerivation rec {
   pname = "rofi-hoogle-plugin";
   version = "0.0.1";
