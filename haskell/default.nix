@@ -7,9 +7,7 @@ mkDerivation rec {
   libraryHaskellDepends = [ base bytestring hoogle containers stm text html-entities];
   license = lib.licenses.bsd3;
   postInstall = ''
-    mv $out/lib/ghc-${ghc.version}/lib/* $out/lib;
-    rmdir $out/lib/ghc-${ghc.version}/lib
-    rmdir $out/lib/ghc-${ghc.version}
+    cp -av $out/lib/ghc-${ghc.version}/lib/* $out/lib;
     mkdir $out/include
     cp $src/csrc/rofi_hoogle_hs.h $out/include
     mkdir $out/lib/pkgconfig
