@@ -215,8 +215,9 @@ freeHoogleSearchState p
       freeHoogleResultSet hoogleStateResults
       free p
 
+-- Always returns a non-null pointer (even for an empty result set) so the C
+-- side can swap private_data in lockstep with us freeing the previous state.
 hoogleSearchStateFromList :: [Target] -> IO (Ptr HoogleSearchState)
-hoogleSearchStateFromList [] = pure nullPtr
 hoogleSearchStateFromList targets = do
   let
     targetGroups = sortTargets targets
