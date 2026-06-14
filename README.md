@@ -18,73 +18,70 @@ Launch rofi with: `rofi -modi hoogle -show hoogle` and type in your query.
 
 ## Installation
 
+rofi-hoogle is packaged as a Nix flake. The flake exposes:
+
+- `packages.<system>.rofi-hoogle` — the plugin (also the default package)
+- `packages.<system>.hs-hoogle-query` — the Haskell library it links against
+- `overlays.default` — adds both packages to a nixpkgs instance
+- `devShells.<system>.default` — a development shell
+
 ### On NixOS
 
-On NixOS you can make an overlay overriding the `plugins` argument to the `rofi` package.
+Add the flake as an input and use its overlay to make `rofi-hoogle` available
+in the package set, then override `rofi`'s `plugins`:
 
 ```nix
-{ config, pkgs, ... }:
-
 {
-  environment.systemPackages = [
-    rofiWithHoogle
-    ...
-  ];
+  inputs.rofi-hoogle.url = "github:rebeccaskinner/rofi-hoogle";
 
-  nixpkgs.overlays = [
-    (self: super: {
-      rofiWithHoogle = let
-        rofi-hoogle-src = pkgs.fetchFromGitHub {
-          owner = "rebeccaskinner";
-          repo = "rofi-hoogle";
-          rev = "27c273ff67add68578052a13f560a08c12fa5767";
-          sha256 = "09vx9bc8s53c575haalcqkdwy44ys1j8v9k2aaly7lndr19spp8f";
-        };
-        rofi-hoogle = import "${rofi-hoogle-src}/release.nix";
-      in super.rofi.override { plugins = [ rofi-hoogle.rofi-hoogle ]; };
-    })
-    ...
-  ];
+  outputs = { self, nixpkgs, rofi-hoogle, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ({ pkgs, ... }: {
+          nixpkgs.overlays = [ rofi-hoogle.overlays.default ];
+          environment.systemPackages = [
+            (pkgs.rofi.override { plugins = [ pkgs.rofi-hoogle ]; })
+          ];
+        })
+      ];
+    };
+  };
 }
 ```
 
 ### With Home-Manager
 
-If you are using [home manager](https://github.com/nix-community/home-manager)
-to manage your desktop environment, you can import this package and add it as a
-plugin:
-
 ```nix
-{ pkgs, ... }:
-let
-  rofi-hoogle-src = pkgs.fetchFromGitHub {
-    owner = "rebeccaskinner";
-    repo = "rofi-hoogle";
-    rev = "27c273ff67add68578052a13f560a08c12fa5767";
-    sha256 = "09vx9bc8s53c575haalcqkdwy44ys1j8v9k2aaly7lndr19spp8f";
-  };
-  rofi-hoogle = import "${rofi-hoogle-src}/release.nix";
-in
 {
-  programs.rofi = {
-    enable = true;
-    terminal = "${pkgs.kitty}/bin/kitty";
-    theme = ./themes/darkplum.rasi;
-    plugins = with pkgs; [
-      rofi-emoji
-      rofi-calc
-      rofi-hoogle.rofi-hoogle
-    ];
+  inputs.rofi-hoogle.url = "github:rebeccaskinner/rofi-hoogle";
+
+  outputs = { self, nixpkgs, home-manager, rofi-hoogle, ... }: {
+    homeConfigurations.me = home-manager.lib.homeManagerConfiguration {
+      pkgs = import nixpkgs {
+        system = "x86_64-linux";
+        overlays = [ rofi-hoogle.overlays.default ];
+      };
+      modules = [
+        ({ pkgs, ... }: {
+          programs.rofi = {
+            enable = true;
+            plugins = [ pkgs.rofi-hoogle ];
+          };
+        })
+      ];
+    };
   };
 }
 ```
 
 ### Manually From Source
 
-First, [install nix](https://nixos.org/download.html), then run:
+First, [install nix](https://nixos.org/download.html) with flakes enabled, then
+from a checkout of this repository run:
 
 ```
-nix-build release.nix
+nix build
 ```
 
 Finally, copy the plugin into your rofi plugin directory:
@@ -92,3 +89,14 @@ Finally, copy the plugin into your rofi plugin directory:
 ```
 cp result/lib/rofi/rofi-hoogle.so $(pkg-config --variable=pluginsdir rofi)
 ```
+
+## Development
+
+A development shell is provided via the flake:
+
+```
+nix develop
+```
+
+If you use [direnv](https://direnv.net/), the included `.envrc` will load this
+shell automatically.
