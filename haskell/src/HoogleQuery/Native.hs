@@ -11,6 +11,10 @@ import           HoogleQuery.ResultSorting
 import           HoogleQuery.SearchHoogle
 import Data.Text.Lazy qualified as LazyText
 
+import           Control.Concurrent
+import           Control.Concurrent.STM
+import           Control.Concurrent.STM.TBQueue
+import           Control.Exception
 import           Control.Monad
 import qualified Data.ByteString           as BS
 import           Data.Foldable
@@ -77,17 +81,25 @@ data HoogleSearchResult = HoogleSearchResult
   , -- | The module name for the primary result; may be null
     searchResultPrimaryModule        :: CString
   , -- | The number of additional results that we've found
-    searchResultSecondaryResultCount :: Int
+    searchResultSecondaryResultCount :: CInt
   , -- | The secondary results, if any (nullPtr if 'searchResultSecondaryResultCount' is 0)
     searchResultSecondaryResults     :: Ptr HoogleSecondaryResult
   }
 
+searchResultCountOffset :: Int
+searchResultCountOffset = 4 * sizeOf @CString undefined
+
+searchResultSecondaryResultsOffset :: Int
+searchResultSecondaryResultsOffset =
+  let a = alignment @(Ptr HoogleSecondaryResult) undefined
+      rawEnd = searchResultCountOffset + sizeOf @CInt undefined
+  in ((rawEnd + a - 1) `div` a) * a
+
 instance Storable HoogleSearchResult where
-  sizeOf _ = (4 * sizeOf @CString undefined)
-             + sizeOf @Int undefined
+  sizeOf _ = searchResultSecondaryResultsOffset
              + sizeOf @(Ptr HoogleSecondaryResult) undefined
   alignment _ = maximum [ alignment @CString undefined
-                        , alignment @Int undefined
+                        , alignment @CInt undefined
                         , alignment @(Ptr HoogleSecondaryResult) undefined
                         ]
   peek inPtr = HoogleSearchResult
@@ -95,16 +107,16 @@ instance Storable HoogleSearchResult where
     <*> peekElemOff (castPtr inPtr) 1
     <*> peekElemOff (castPtr inPtr) 2
     <*> peekElemOff (castPtr inPtr) 3
-    <*> peekByteOff inPtr (4 * sizeOf @CString undefined)
-    <*> peekByteOff inPtr ((4 * sizeOf @CString undefined) + sizeOf @Int undefined)
+    <*> peekByteOff inPtr searchResultCountOffset
+    <*> peekByteOff inPtr searchResultSecondaryResultsOffset
 
   poke outPtr HoogleSearchResult{..} = do
     poke (castPtr outPtr) searchResultName
     pokeElemOff (castPtr outPtr) 1 searchResultPrimaryURL
     pokeElemOff (castPtr outPtr) 2 searchResultPrimaryPackage
     pokeElemOff (castPtr outPtr) 3 searchResultPrimaryModule
-    pokeByteOff outPtr (4 * sizeOf @CString undefined) searchResultSecondaryResultCount
-    pokeByteOff outPtr ((4 * sizeOf @CString undefined) + sizeOf @Int undefined) searchResultSecondaryResults
+    pokeByteOff outPtr searchResultCountOffset searchResultSecondaryResultCount
+    pokeByteOff outPtr searchResultSecondaryResultsOffset searchResultSecondaryResults
 
 freeHoogleSearchResult :: HoogleSearchResult -> IO ()
 freeHoogleSearchResult HoogleSearchResult{..} = do
@@ -132,7 +144,7 @@ hoogleSearchResultFromList (primary NonEmpty.:| rest) = HoogleSearchResult
   <*> newCString (targetURL primary)
   <*> maybeCString (fst <$> targetPackage primary)
   <*> maybeCString (fst <$> targetModule primary)
-  <*> pure (length rest)
+  <*> pure (fromIntegral (length rest))
   <*> secondaryResultsFromList rest
   where
     secondaryResultsFromList [] = pure nullPtr
@@ -154,79 +166,75 @@ hoogleSearchResultFromListPtr (primary:rest) = do
   poke result searchResult
   pure result
 
-data HoogleResultSet = HoogleResultSet
-  { hoogleResultValue :: HoogleSearchResult
-  , hoogleResultNext  :: Ptr HoogleResultSet
-  }
+-- Phantom type tag for Ptr HoogleSearchState. The C struct is:
+--   struct hoogle_search_state {
+--     unsigned int result_count;
+--     char *query_error;             // NULL if no error
+--     hoogle_search_result_t results[];
+--   };
+-- It's variable-size, so there's no Storable instance; allocation and access
+-- go through the helpers below.
+data HoogleSearchState
 
-instance Storable HoogleResultSet where
-  sizeOf _ = (5 * sizeOf @CString undefined) + sizeOf @(Ptr HoogleResultSet) undefined
-  alignment _ = max (alignment @CString undefined) (alignment @(Ptr HoogleResultSet) undefined)
-  peek resultPtr = HoogleResultSet
-    <$> peek (castPtr resultPtr)
-    <*> peekByteOff  resultPtr (sizeOf @HoogleSearchResult undefined)
+hoogleSearchStateQueryErrorOffset :: Int
+hoogleSearchStateQueryErrorOffset =
+  let a = alignment @CString undefined
+      rawEnd = sizeOf @CUInt undefined
+  in ((rawEnd + a - 1) `div` a) * a
 
-  poke outPtr HoogleResultSet{..} = do
-    poke (castPtr outPtr) hoogleResultValue
-    pokeByteOff outPtr (sizeOf @HoogleSearchResult undefined) hoogleResultNext
+hoogleSearchStateResultsOffset :: Int
+hoogleSearchStateResultsOffset =
+  let a = alignment @HoogleSearchResult undefined
+      rawEnd = hoogleSearchStateQueryErrorOffset + sizeOf @CString undefined
+  in ((rawEnd + a - 1) `div` a) * a
 
-freeHoogleResultSet :: Ptr HoogleResultSet -> IO ()
-freeHoogleResultSet resultPtr
-  | resultPtr == nullPtr = pure ()
-  | otherwise = do
-      HoogleResultSet{..} <- peek resultPtr
-      freeHoogleSearchResult hoogleResultValue
-      freeHoogleResultSet hoogleResultNext
-      free resultPtr
-      pure ()
+hoogleSearchStateAllocSize :: Int -> Int
+hoogleSearchStateAllocSize n =
+  hoogleSearchStateResultsOffset + n * sizeOf @HoogleSearchResult undefined
 
-hoogleSearchResultSetFromTargetGroups :: [[Target]] -> IO (Ptr HoogleResultSet)
-hoogleSearchResultSetFromTargetGroups [] = pure nullPtr
-hoogleSearchResultSetFromTargetGroups (target:targets) =
-  case target of
-    [] -> hoogleSearchResultSetFromTargetGroups targets
-    (t:ts) -> do
-      p <- malloc
-      poke p =<< HoogleResultSet
-        <$> hoogleSearchResultFromList (t NonEmpty.:| ts)
-        <*> hoogleSearchResultSetFromTargetGroups targets
-      pure p
-
-data HoogleSearchState = HoogleSearchState
-  { hoogleStateResults     :: Ptr HoogleResultSet
-  , hoogleStateResultCount :: Int
-  }
-
-instance Storable HoogleSearchState where
-  sizeOf _ = sizeOf @(Ptr HoogleResultSet) undefined + sizeOf @Int undefined
-  alignment _ = max (alignment @(Ptr HoogleResultSet) undefined) (alignment @Int undefined)
-  peek inPtr = HoogleSearchState
-    <$> peek (castPtr inPtr)
-    <*> peekByteOff inPtr (sizeOf @(Ptr HoogleResultSet) undefined)
-  poke outPtr HoogleSearchState{..} = do
-    poke (castPtr outPtr) hoogleStateResults
-    pokeByteOff outPtr (sizeOf @(Ptr HoogleResultSet) undefined) hoogleStateResultCount
+hoogleSearchStateResults :: Ptr HoogleSearchState -> Ptr HoogleSearchResult
+hoogleSearchStateResults p = castPtr (p `plusPtr` hoogleSearchStateResultsOffset)
 
 freeHoogleSearchState :: Ptr HoogleSearchState -> IO ()
 freeHoogleSearchState p
   | p == nullPtr = pure ()
   | otherwise = do
-      HoogleSearchState{..} <- peek p
-      freeHoogleResultSet hoogleStateResults
+      count <- peek (castPtr p) :: IO CUInt
+      errStr <- peekByteOff p hoogleSearchStateQueryErrorOffset :: IO CString
+      when (errStr /= nullPtr) $ free errStr
+      let arr = hoogleSearchStateResults p
+      for_ [0 .. fromIntegral count - 1] $ \i ->
+        peekElemOff arr i >>= freeHoogleSearchResult
       free p
 
 -- Always returns a non-null pointer (even for an empty result set) so the C
 -- side can swap private_data in lockstep with us freeing the previous state.
 hoogleSearchStateFromList :: [Target] -> IO (Ptr HoogleSearchState)
 hoogleSearchStateFromList targets = do
-  let
-    targetGroups = sortTargets targets
-    resultCount = length targetGroups
-  p <- malloc
-  resultSet <- hoogleSearchResultSetFromTargetGroups targetGroups
-  poke p $ HoogleSearchState resultSet resultCount
-  pure p
+  let nonEmptyGroups = mapMaybe NonEmpty.nonEmpty (sortTargets targets)
+      resultCount = length nonEmptyGroups
+  p <- mallocBytes (hoogleSearchStateAllocSize resultCount)
+  poke (castPtr p :: Ptr CUInt) (fromIntegral resultCount)
+  pokeByteOff p hoogleSearchStateQueryErrorOffset (nullPtr :: CString)
+  let arr = hoogleSearchStateResults (castPtr p)
+  for_ (zip [0..] nonEmptyGroups) $ \(i, neGroup) -> do
+    sr <- hoogleSearchResultFromList neGroup
+    pokeElemOff arr i sr
+  pure (castPtr p)
 
+-- Builds a search state carrying a query error (e.g. the DB failed to load).
+-- result_count is 0 and the results array is empty; plugin.c reads query_error
+-- in _get_message and renders it in place of the usage hint.
+hoogleSearchStateFromError :: String -> IO (Ptr HoogleSearchState)
+hoogleSearchStateFromError msg = do
+  p <- mallocBytes (hoogleSearchStateAllocSize 0)
+  poke (castPtr p :: Ptr CUInt) 0
+  errStr <- newCString msg
+  pokeByteOff p hoogleSearchStateQueryErrorOffset errStr
+  pure (castPtr p)
+
+-- Holds the active search state pointer; not freed at hs_exit because the
+-- RTS only shuts down when rofi is exiting and the OS reclaims it.
 lastResults :: IORef (Ptr HoogleSearchState)
 lastResults = unsafePerformIO $ newIORef nullPtr
 {-# NOINLINE lastResults #-}
@@ -245,6 +253,61 @@ updateResults newResults = do
 updateResults' :: Ptr HoogleSearchState -> IO (Ptr HoogleSearchState)
 updateResults' p = updateResults p >> pure p
 
+newtype DBLoadError = DBLoadError { dbLoadErrorMessage :: String }
+
+newtype SearchQueue = SearchQueue (TBQueue (String, MVar [Target]))
+
+-- Either the DB-load error from hs_search_init, or a handle to the worker
+-- thread that owns the open Hoogle database. Set once by initSearchWorker.
+searchHandle :: IORef (Either DBLoadError SearchQueue)
+searchHandle = unsafePerformIO $
+  newIORef (Left (DBLoadError "search worker not initialized"))
+{-# NOINLINE searchHandle #-}
+
+-- Spawns the worker thread inside withDatabase, then blocks until the worker
+-- either reports the queue handle (DB loaded) or reports a load error.
+-- The result is stashed in searchHandle for preprocessInput / initialState
+-- to consult.
+initSearchWorker :: IO ()
+initSearchWorker = do
+  resultMVar <- newEmptyMVar
+  let runWorker :: Database -> IO ()
+      runWorker db = do
+        queries <- newTBQueueIO 1
+        putMVar resultMVar (Right (SearchQueue queries))
+        forever $ do
+          (q, reply) <- atomically $ readTBQueue queries
+          putMVar reply (searchDatabase db q)
+  void $ forkIO $ do
+    outcome <- try @SomeException $ do
+      dbLoc <- defaultDatabaseLocation
+      withDatabase dbLoc runWorker
+    case outcome of
+      Left err -> void $ tryPutMVar resultMVar (Left (DBLoadError (show err)))
+      Right _  -> pure ()  -- unreachable; the loop never returns
+  result <- takeMVar resultMVar
+  writeIORef searchHandle result
+
+foreign export ccall "hs_search_init" initSearchWorker :: IO ()
+
+queryViaWorker :: SearchQueue -> String -> IO [Target]
+queryViaWorker (SearchQueue qs) q = do
+  reply <- newEmptyMVar
+  atomically $ writeTBQueue qs (q, reply)
+  takeMVar reply
+
+-- Called from mode_init so the DB-load error is visible in the rofi prompt
+-- before the user types anything. Returns nullPtr when the DB loaded cleanly.
+initialState :: IO (Ptr HoogleSearchState)
+initialState = do
+  handle <- readIORef searchHandle
+  case handle of
+    Left (DBLoadError msg) ->
+      hoogleSearchStateFromError msg >>= updateResults'
+    Right _ -> pure nullPtr
+
+foreign export ccall "hs_initial_state" initialState :: IO (Ptr HoogleSearchState)
+
 foreign export ccall "search_hoogle" searchHoogleNative :: CString -> IO CString
 
 searchHoogleNative :: CString -> IO CString
@@ -255,19 +318,21 @@ foreign export ccall "hs_preprocess_input" preprocessInput :: CString -> IO (Ptr
 
 preprocessInput :: CString -> IO (Ptr HoogleSearchState)
 preprocessInput input = do
-  dbName <- defaultDatabaseLocation
   input' <- peekCString input
   lastQueryInput <- readIORef lastQuery
   if input' == lastQueryInput
     then readIORef lastResults
-    else (do
-             writeIORef lastQuery input'
-             if shouldSearchString input'
-               then withDatabase dbName (searchUpdateResults input')
-               else pure nullPtr)
-
-searchUpdateResults :: String -> Database -> IO (Ptr HoogleSearchState)
-searchUpdateResults query db = updateSearchResults $ searchDatabase db query
+    else do
+      writeIORef lastQuery input'
+      handle <- readIORef searchHandle
+      case handle of
+        Left (DBLoadError msg) ->
+          hoogleSearchStateFromError msg >>= updateResults'
+        Right q
+          | shouldSearchString input' -> do
+              targets <- queryViaWorker q input'
+              updateSearchResults targets
+          | otherwise -> pure nullPtr
 
 updateSearchResults :: [Target] -> IO (Ptr HoogleSearchState)
 updateSearchResults targets =

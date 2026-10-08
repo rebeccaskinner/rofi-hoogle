@@ -25,20 +25,22 @@ struct hoogle_search_result {
 
 typedef struct hoogle_search_result hoogle_search_result_t;
 
-struct hoogle_result_set {
-  hoogle_search_result_t search_result;
-  struct hoogle_result_set *next;
-};
-
-typedef struct hoogle_result_set hoogle_result_set_t;
-
 struct hoogle_search_state {
-  hoogle_result_set_t *results;
   unsigned int result_count;
+  char *query_error; // NULL if no error
+  hoogle_search_result_t results[];
 };
 
 typedef struct hoogle_search_state hoogle_search_state_t;
 
 hoogle_search_state_t* hs_preprocess_input(const char* input);
+
+// Spawns the search worker and waits for the Hoogle database to load.
+// Must be called once after hs_init.
+void hs_search_init(void);
+
+// Returns a state surfacing the DB load error if hs_search_init failed,
+// otherwise NULL. Used by mode_init to populate private_data on startup.
+hoogle_search_state_t* hs_initial_state(void);
 
 #endif
