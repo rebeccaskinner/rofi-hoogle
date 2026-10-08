@@ -1,28 +1,57 @@
-{ mkDerivation, lib, ghc, base, bytestring, hoogle, containers, stm, text, html-entities }:
+{
+  mkDerivation,
+  lib,
+  base,
+  bytestring,
+  containers,
+  hoogle,
+  html-entities,
+  stm,
+  text,
+  unordered-containers,
+}:
 
-mkDerivation rec {
+mkDerivation {
   pname = "rofi-hoogle-hs";
   version = "0.1.0.0";
-  src = ./.;
-  libraryHaskellDepends = [ base bytestring hoogle containers stm text html-entities];
+  src = lib.fileset.toSource {
+    root = ./.;
+    fileset = lib.fileset.unions [
+      ./rofi-hoogle.cabal
+      ./CHANGELOG.md
+      ./LICENSE
+      ./src
+      ./csrc
+    ];
+  };
+  libraryHaskellDepends = [
+    base
+    bytestring
+    containers
+    hoogle
+    html-entities
+    stm
+    text
+    unordered-containers
+  ];
   license = lib.licenses.bsd3;
   postInstall = ''
-    cp -av $out/lib/ghc-${ghc.version}/lib/* $out/lib;
-    mkdir $out/include
-    cp $src/csrc/rofi_hoogle_hs.h $out/include
-    mkdir $out/lib/pkgconfig
+    # cabal installs foreign libraries under lib/ghc-<version>/lib; expose
+    # them in lib/ so the plugin can link against them via pkg-config.
+    ln -s $out/lib/ghc-*/lib/librofi-hoogle-native.so* $out/lib/
+    install -Dm644 csrc/rofi_hoogle_hs.h $out/include/rofi_hoogle_hs.h
 
-    cat <<END > $out/lib/pkgconfig/rofiHoogleNative.pc
-        prefix=$out
-        exec_prefix=$${prefix}
-        libdir=$${prefix}/lib
-        includedir=$${prefix}/include
+    mkdir -p $out/lib/pkgconfig
+    cat > $out/lib/pkgconfig/rofiHoogleNative.pc <<EOF
+    prefix=$out
+    libdir=\''${prefix}/lib
+    includedir=\''${prefix}/include
 
-        Name: ${pname}
-        Description: search hoogle
-        Version: 0.1.0
-        Cflags: -I$out/include
-        Libs: -L$out/lib -lrofi-hoogle-native
-END
+    Name: rofiHoogleNative
+    Description: search hoogle
+    Version: 0.1.0.0
+    Cflags: -I\''${includedir}
+    Libs: -L\''${libdir} -lrofi-hoogle-native
+    EOF
   '';
 }
