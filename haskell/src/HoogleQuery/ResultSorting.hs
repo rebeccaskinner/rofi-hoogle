@@ -45,12 +45,15 @@ groupTargets =
 
 -- | Applies the config to Hoogle's results:
 --
--- 1. group duplicates ('groupTargets'), keeping Hoogle's order
--- 2. drop targets from hidden packages, and any groups left empty
--- 3. keep the first 'effectiveRelevanceWindow' groups
--- 4. move groups containing a pinned package to the front, keeping Hoogle's
+-- 1. keep only the first 'effectiveRawResultLimit' targets, so that Hoogle
+--    doesn't have to produce the rest; copies of an item beyond this point
+--    are not grouped with it
+-- 2. group duplicates ('groupTargets'), keeping Hoogle's order
+-- 3. drop targets from hidden packages, and any groups left empty
+-- 4. keep the first 'effectiveRelevanceWindow' groups
+-- 5. move groups containing a pinned package to the front, keeping Hoogle's
 --    order otherwise; the first pinned target in a group becomes its primary
--- 5. keep the first 'configMaxResults' groups
+-- 6. keep the first 'configMaxResults' groups
 rankResults :: RofiHoogleConfig -> [Target] -> [NonEmpty Target]
 rankResults cfg =
   take (configMaxResults cfg)
@@ -58,6 +61,7 @@ rankResults cfg =
     . take (effectiveRelevanceWindow cfg)
     . mapMaybe (NonEmpty.nonEmpty . NonEmpty.filter (not . isHidden))
     . groupTargets
+    . take (effectiveRawResultLimit cfg)
  where
   inPackages packages = maybe False (`Set.member` packages) . targetPackageName
   isPinned = inPackages (configPinnedPackages cfg)

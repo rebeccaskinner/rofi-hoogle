@@ -78,6 +78,17 @@ spec = describe "HoogleQuery.Config" $ do
     it "saturates instead of overflowing" $
       effectiveRelevanceWindow defaultConfig{configMaxResults = maxBound} `shouldBe` maxBound
 
+  describe "effectiveRawResultLimit" $ do
+    it "is twice the default relevance window" $
+      effectiveRawResultLimit defaultConfig{configMaxResults = 7} `shouldBe` 70
+
+    it "is twice an explicit relevance window" $
+      effectiveRawResultLimit defaultConfig{configRelevanceWindow = Just 3} `shouldBe` 6
+
+    it "saturates instead of overflowing" $
+      effectiveRawResultLimit defaultConfig{configRelevanceWindow = Just maxBound}
+        `shouldBe` maxBound
+
   describe "loadConfigFrom" $ do
     it "uses the defaults without a warning when the file is missing" $
       withSystemTempDirectory "rofi-hoogle" $ \dir ->

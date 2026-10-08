@@ -37,7 +37,13 @@ spec = describe "HoogleQuery.ResultSorting" $ do
       ts <- forAll Gen.targets
       let plain = cfg{configPinnedPackages = Set.empty, configHiddenPackages = Set.empty}
           limit = min (configMaxResults plain) (effectiveRelevanceWindow plain)
-      rankResults plain ts === take limit (groupTargets ts)
+      rankResults plain ts
+        === take limit (groupTargets (take (effectiveRawResultLimit plain) ts))
+
+    it "ignores Hoogle's results beyond the raw result limit" $ hedgehog $ do
+      cfg <- forAll Gen.config
+      ts <- forAll Gen.targets
+      rankResults cfg ts === rankResults cfg (take (effectiveRawResultLimit cfg) ts)
 
     it "never shows a target from a hidden package" $ hedgehog $ do
       cfg <- forAll Gen.config
@@ -114,6 +120,17 @@ spec = describe "HoogleQuery.ResultSorting" $ do
           [relude "mapM_", text "pack"]
           `shouldBe` [pure (text "pack")]
 
+      it "does not group or promote copies beyond the raw result limit" $ do
+        let cfg =
+              defaultConfig
+                { configMaxResults = 1
+                , configRelevanceWindow = Just 1
+                , configPinnedPackages = Set.fromList ["rio"]
+                }
+        -- the raw result limit is 2, so the rio copy of lookup is never seen
+        rankResults cfg [containers "lookup", text "pack", rio "lookup"]
+          `shouldBe` [pure (containers "lookup")]
+
       it "caps the default config at 50 results" $
         length (rankResults defaultConfig (map (text . show) [1 .. 80 :: Int]))
           `shouldBe` 50
@@ -128,10 +145,12 @@ isPinned, isHidden :: RofiHoogleConfig -> Target -> Bool
 isPinned = inPackages . configPinnedPackages
 isHidden = inPackages . configHiddenPackages
 
--- | The groups pinning may choose from: Hoogle's groups with hidden targets
--- removed, limited to the relevance window.
+-- | The groups pinning may choose from: groups of Hoogle's results up to the
+-- raw result limit, with hidden targets removed, limited to the relevance
+-- window.
 candidates :: RofiHoogleConfig -> [Target] -> [NonEmpty Target]
 candidates cfg =
   take (effectiveRelevanceWindow cfg)
     . mapMaybe (NonEmpty.nonEmpty . filter (not . isHidden cfg) . toList)
     . groupTargets
+    . take (effectiveRawResultLimit cfg)

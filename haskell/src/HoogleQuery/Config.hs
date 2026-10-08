@@ -8,6 +8,7 @@ module HoogleQuery.Config
   ( RofiHoogleConfig (..)
   , defaultConfig
   , effectiveRelevanceWindow
+  , effectiveRawResultLimit
   , parseConfig
   , configFilePath
   , loadConfig
@@ -59,10 +60,18 @@ defaultConfig =
 -- (saturating rather than overflowing).
 effectiveRelevanceWindow :: RofiHoogleConfig -> Int
 effectiveRelevanceWindow cfg =
-  fromMaybe defaultWindow (configRelevanceWindow cfg)
- where
-  defaultWindow =
-    fromInteger $ min (toInteger (maxBound @Int)) (5 * toInteger (configMaxResults cfg))
+  fromMaybe (saturatingMul 5 (configMaxResults cfg)) (configRelevanceWindow cfg)
+
+-- | How many of Hoogle's results to consider at all: twice
+-- 'effectiveRelevanceWindow' (saturating). Hoogle produces results lazily,
+-- best first, and forcing all of them dominates search time for broad
+-- queries.
+effectiveRawResultLimit :: RofiHoogleConfig -> Int
+effectiveRawResultLimit = saturatingMul 2 . effectiveRelevanceWindow
+
+saturatingMul :: Int -> Int -> Int
+saturatingMul a b =
+  fromInteger $ min (toInteger (maxBound @Int)) (toInteger a * toInteger b)
 
 instance FromJSON RofiHoogleConfig where
   parseJSON = withKnownObject "config" ["results"] $ \top ->
