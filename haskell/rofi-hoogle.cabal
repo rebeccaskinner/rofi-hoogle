@@ -1,4 +1,4 @@
-cabal-version:      2.4
+cabal-version:      3.12
 name:               rofi-hoogle-hs
 version:            0.1.0.0
 synopsis:           Query Hoogle from Rofi
@@ -37,6 +37,7 @@ library
                    , PangoUtils
 
     hs-source-dirs: src
+    default-language: GHC2024
 
 foreign-library rofi-hoogle-native
     type:             native-shared
@@ -66,7 +67,7 @@ foreign-library rofi-hoogle-native
                     , html-entities
     hs-source-dirs:   src
     c-sources:        csrc/wrapper.c
-    default-language: Haskell2010
+    default-language: GHC2024
 
 test-suite rofi-hoogle-test
     type:             exitcode-stdio-1.0
@@ -86,4 +87,4 @@ test-suite rofi-hoogle-test
                     , hspec-hedgehog
                     , temporary
     hs-source-dirs:   test
-    default-language: Haskell2010
+    default-language: GHC2024

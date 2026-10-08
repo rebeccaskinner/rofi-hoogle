@@ -3,15 +3,15 @@ module HoogleQuery.ResultSortingSpec (spec) where
 import Data.Foldable (toList)
 import Data.List (delete, find, nub, sort)
 import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NonEmpty
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Maybe (mapMaybe)
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 import Hoogle (Target (..))
 import Test.Hspec
 import Test.Hspec.Hedgehog (assert, forAll, hedgehog, (===))
 
 import Gen (mkTarget)
-import qualified Gen
+import Gen qualified
 import HoogleQuery.Config
 import HoogleQuery.ResultSorting
 

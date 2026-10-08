@@ -1,5 +1,3 @@
-{-# LANGUAGE ImportQualifiedPost #-}
-
 -- | Turns Hoogle's results into the rows shown in rofi. Hoogle's relevance
 -- order is the baseline; the user's config only hides packages and nudges
 -- pinned packages up within the most relevant results.

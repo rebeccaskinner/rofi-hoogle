@@ -1,7 +1,7 @@
 module Main (main) where
 
-import qualified HoogleQuery.ConfigSpec
-import qualified HoogleQuery.ResultSortingSpec
+import HoogleQuery.ConfigSpec qualified
+import HoogleQuery.ResultSortingSpec qualified
 import Test.Hspec (hspec)
 
 main :: IO ()

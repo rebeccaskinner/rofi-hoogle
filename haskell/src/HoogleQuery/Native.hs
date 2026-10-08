@@ -1,8 +1,9 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
+-- ImportQualifiedPost is implied by GHC2024, but fourmolu doesn't read the
+-- language from foreign-library stanzas, so it needs to be stated here for
+-- this module to format.
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeApplications #-}
 
 module HoogleQuery.Native where
 

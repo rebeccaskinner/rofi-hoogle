@@ -3,17 +3,17 @@
 module HoogleQuery.ConfigSpec (spec) where
 
 import Data.Aeson (encode)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
 import Data.Either (isLeft)
 import Data.List (isInfixOf)
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Hspec
 import Test.Hspec.Hedgehog (forAll, hedgehog, tripping)
 
-import qualified Gen
+import Gen qualified
 import HoogleQuery.Config
 
 spec :: Spec

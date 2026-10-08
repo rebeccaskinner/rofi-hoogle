@@ -1,5 +1,3 @@
-{-# LANGUAGE ImportQualifiedPost #-}
-
 module PangoUtils where
 
 import Data.Text qualified as Text

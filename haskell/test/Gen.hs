@@ -10,10 +10,10 @@ module Gen
   ) where
 
 import Data.Set (Set)
-import qualified Data.Set as Set
+import Data.Set qualified as Set
 import Hedgehog (Gen)
-import qualified Hedgehog.Gen as Gen
-import qualified Hedgehog.Range as Range
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Hoogle (Target (..))
 import HoogleQuery.Config
 
