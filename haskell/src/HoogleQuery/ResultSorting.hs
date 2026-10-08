@@ -6,8 +6,8 @@ import Hoogle
 import Data.Maybe
 import Data.List
 import Data.Ord
-import Debug.Trace
 import qualified Data.HashMap.Strict as HashMap
+import qualified Data.Map.Strict as Map
 
 data PackageType
   = PackageTypeBase
@@ -33,7 +33,6 @@ defaultPackageClassification =
   , ("mtl", PackageTypeCoreLibrary)
   , ("primitive", PackageTypeCoreLibrary)
   , ("process", PackageTypeCoreLibrary)
-  , ("random", PackageTypeCoreLibrary)
   , ("stm", PackageTypeCoreLibrary)
   , ("template-haskell", PackageTypeCoreLibrary)
   , ("unix", PackageTypeCoreLibrary)
@@ -42,7 +41,6 @@ defaultPackageClassification =
   -- Non-Core libraries that ship with GHC
   , ("containers", PackageTypeGHCLibrary)
   , ("hoopl", PackageTypeGHCLibrary)
-  , ("parallel", PackageTypeGHCLibrary)
   , ("pretty", PackageTypeGHCLibrary)
   , ("time", PackageTypeGHCLibrary)
   , ("xhtml", PackageTypeGHCLibrary)
@@ -88,27 +86,35 @@ classifyPackage (PackageClassification classifications) pkgName =
 
 sortTargetsByClassification :: [Target] -> [Target]
 sortTargetsByClassification =
-  let
-    classification :: Target -> PackageType
-    classification p =
-      let
-        pName = maybe "" fst (targetPackage p)
-        c = classifyPackage defaultPackageClassification pName
-      in trace ("classification for " <> pName <> " is " <> show c) $ c
-  in
-    sortOn classification
+  sortOn (classifyPackage defaultPackageClassification . maybe "" fst . targetPackage)
 
+-- | Groups targets that refer to the same item in different locations (e.g. a
+-- function and its re-exports), as Hoogle's web UI does. Within a group, the
+-- target from the highest-priority package comes first and becomes the primary
+-- result. Groups are ordered by that package's classification, with ties kept
+-- in Hoogle's relevance order.
 sortTargets :: [Target] -> [[Target]]
 sortTargets =
-  sortOn classifyTargetSet
-  . HashMap.elems
-  . HashMap.map sortTargetsByClassification
-  . foldr insertTarget HashMap.empty
+  map snd
+  . sortOn fst
+  . map rankGroup
+  . Map.elems
+  . Map.fromListWith mergeGroups
+  . zipWith (\index target -> (locationless target, (index, [target]))) [0 :: Int ..]
   where
-    insertTarget :: Target -> HashMap.HashMap String [Target] -> HashMap.HashMap String [Target]
-    insertTarget target accumulatorMap =
-      let key = maybe "" fst $ targetPackage target
-      in HashMap.insertWith (<>) key [target] accumulatorMap
+    locationless :: Target -> Target
+    locationless target =
+      target { targetURL = "", targetPackage = Nothing, targetModule = Nothing }
+
+    -- fromListWith passes the later entry first; keep the earliest index and
+    -- the original relative order of the group's targets.
+    mergeGroups :: (Int, [Target]) -> (Int, [Target]) -> (Int, [Target])
+    mergeGroups (_, later) (firstIndex, earlier) = (firstIndex, earlier <> later)
+
+    rankGroup :: (Int, [Target]) -> ((PackageType, Int), [Target])
+    rankGroup (firstIndex, group) =
+      let sorted = sortTargetsByClassification group
+      in ((classifyTargetSet sorted, firstIndex), sorted)
 
     classifyTargetSet :: [Target] -> PackageType
     classifyTargetSet [] = PackageTypeOtherLibrary
