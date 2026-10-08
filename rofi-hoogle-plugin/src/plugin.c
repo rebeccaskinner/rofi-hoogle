@@ -166,13 +166,17 @@ static char *hoogle_plugin_get_display_value(
     printf("cannot get %d result", selected_line);
     return g_strdup("n/a");
   }
-  return(
-    g_markup_printf_escaped(
-      "<span font_weight=\"bold\">%s</span>\r<span size=\"x-small\" font_weight=\"light\">%s %s</span>",
-      result->search_result_name,
-      STR_OR(result->search_result_primary_package, ""),
-      STR_OR(result->search_result_primary_module,"")
-      )
+  const char *package = result->search_result_primary_package;
+  if (NULL == package) {
+    return g_markup_printf_escaped(
+      "<span font_weight=\"bold\">%s</span>",
+      result->search_result_name
+      );
+  }
+  return g_markup_printf_escaped(
+    "<span font_weight=\"bold\">%s</span>  <span font_weight=\"light\" alpha=\"70%%\">(%s)</span>",
+    result->search_result_name,
+    package
     );
 }
 
