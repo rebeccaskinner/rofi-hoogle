@@ -14,7 +14,7 @@ import qualified Data.Set as Set
 import Hedgehog (Gen)
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import Hoogle (Target(..))
+import Hoogle (Target (..))
 import HoogleQuery.Config
 
 packageName :: Gen String
@@ -23,14 +23,15 @@ packageName = Gen.element ["base", "containers", "text", "rio", "relude", "vecto
 -- | A target for @item@ in module @modName@ of @pkg@ (or a package-less
 -- target, as Hoogle returns for packages themselves).
 mkTarget :: Maybe String -> String -> String -> Target
-mkTarget pkg modName item = Target
-  { targetURL     = "https://hackage.haskell.org/" <> maybe "" (<> "/") pkg <> modName <> "#" <> item
-  , targetPackage = fmap (\p -> (p, "https://hackage.haskell.org/package/" <> p)) pkg
-  , targetModule  = Just (modName, "https://hackage.haskell.org/" <> modName)
-  , targetType    = ""
-  , targetItem    = item
-  , targetDocs    = ""
-  }
+mkTarget pkg modName item =
+  Target
+    { targetURL = "https://hackage.haskell.org/" <> maybe "" (<> "/") pkg <> modName <> "#" <> item
+    , targetPackage = fmap (\p -> (p, "https://hackage.haskell.org/package/" <> p)) pkg
+    , targetModule = Just (modName, "https://hackage.haskell.org/" <> modName)
+    , targetType = ""
+    , targetItem = item
+    , targetDocs = ""
+    }
 
 target :: Gen Target
 target =

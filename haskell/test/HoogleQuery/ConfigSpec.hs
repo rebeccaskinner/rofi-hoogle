@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+
 module HoogleQuery.ConfigSpec (spec) where
 
 import Data.Aeson (encode)
@@ -25,24 +26,27 @@ spec = describe "HoogleQuery.Config" $ do
       parseConfig "{\"results\": {}}" `shouldBe` Right defaultConfig
 
     it "parses a full config" $
-      parseConfig (BS.concat
-        [ "{\"results\": {"
-        , "  \"max-results\": 10,"
-        , "  \"relevance-window\": 40,"
-        , "  \"pinned-packages\": [\"base\", \"containers\"],"
-        , "  \"hidden-packages\": [\"relude\"]"
-        , "}}"
-        ])
-        `shouldBe` Right RofiHoogleConfig
-          { configMaxResults      = 10
-          , configRelevanceWindow = Just 40
-          , configPinnedPackages  = Set.fromList ["base", "containers"]
-          , configHiddenPackages  = Set.fromList ["relude"]
-          }
+      parseConfig
+        ( BS.concat
+            [ "{\"results\": {"
+            , "  \"max-results\": 10,"
+            , "  \"relevance-window\": 40,"
+            , "  \"pinned-packages\": [\"base\", \"containers\"],"
+            , "  \"hidden-packages\": [\"relude\"]"
+            , "}}"
+            ]
+        )
+        `shouldBe` Right
+          RofiHoogleConfig
+            { configMaxResults = 10
+            , configRelevanceWindow = Just 40
+            , configPinnedPackages = Set.fromList ["base", "containers"]
+            , configHiddenPackages = Set.fromList ["relude"]
+            }
 
     it "keeps defaults for fields that are left out" $
       parseConfig "{\"results\": {\"pinned-packages\": [\"base\"]}}"
-        `shouldBe` Right defaultConfig { configPinnedPackages = Set.fromList ["base"] }
+        `shouldBe` Right defaultConfig{configPinnedPackages = Set.fromList ["base"]}
 
     it "rejects unknown keys, naming them" $ do
       parseConfig "{\"results\": {\"pinned-pacakges\": []}}"
@@ -66,13 +70,13 @@ spec = describe "HoogleQuery.Config" $ do
 
   describe "effectiveRelevanceWindow" $ do
     it "defaults to five times max-results" $
-      effectiveRelevanceWindow defaultConfig { configMaxResults = 7 } `shouldBe` 35
+      effectiveRelevanceWindow defaultConfig{configMaxResults = 7} `shouldBe` 35
 
     it "uses an explicit window" $
-      effectiveRelevanceWindow defaultConfig { configRelevanceWindow = Just 3 } `shouldBe` 3
+      effectiveRelevanceWindow defaultConfig{configRelevanceWindow = Just 3} `shouldBe` 3
 
     it "saturates instead of overflowing" $
-      effectiveRelevanceWindow defaultConfig { configMaxResults = maxBound } `shouldBe` maxBound
+      effectiveRelevanceWindow defaultConfig{configMaxResults = maxBound} `shouldBe` maxBound
 
   describe "loadConfigFrom" $ do
     it "uses the defaults without a warning when the file is missing" $
@@ -83,7 +87,7 @@ spec = describe "HoogleQuery.Config" $ do
       withSystemTempDirectory "rofi-hoogle" $ \dir -> do
         let path = dir </> "config.json"
         BS.writeFile path "{\"results\": {\"max-results\": 5}}"
-        loadConfigFrom path `shouldReturn` (defaultConfig { configMaxResults = 5 }, Nothing)
+        loadConfigFrom path `shouldReturn` (defaultConfig{configMaxResults = 5}, Nothing)
 
     it "falls back to the defaults with a warning naming the file when it is invalid" $
       withSystemTempDirectory "rofi-hoogle" $ \dir -> do

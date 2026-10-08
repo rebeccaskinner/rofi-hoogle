@@ -1,8 +1,8 @@
 module Main (main) where
 
-import Test.Hspec (hspec)
 import qualified HoogleQuery.ConfigSpec
 import qualified HoogleQuery.ResultSortingSpec
+import Test.Hspec (hspec)
 
 main :: IO ()
 main = hspec $ do

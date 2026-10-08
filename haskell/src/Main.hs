@@ -1,4 +1,5 @@
 module Main where
+
 import Hoogle
 
 main :: IO ()

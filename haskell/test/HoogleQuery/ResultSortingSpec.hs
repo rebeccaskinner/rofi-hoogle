@@ -6,12 +6,12 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
-import Hoogle (Target(..))
+import Hoogle (Target (..))
 import Test.Hspec
 import Test.Hspec.Hedgehog (assert, forAll, hedgehog, (===))
 
-import qualified Gen
 import Gen (mkTarget)
+import qualified Gen
 import HoogleQuery.Config
 import HoogleQuery.ResultSorting
 
@@ -35,7 +35,7 @@ spec = describe "HoogleQuery.ResultSorting" $ do
     it "is grouping plus truncation when nothing is pinned or hidden" $ hedgehog $ do
       cfg <- forAll Gen.config
       ts <- forAll Gen.targets
-      let plain = cfg { configPinnedPackages = Set.empty, configHiddenPackages = Set.empty }
+      let plain = cfg{configPinnedPackages = Set.empty, configHiddenPackages = Set.empty}
           limit = min (configMaxResults plain) (effectiveRelevanceWindow plain)
       rankResults plain ts === take limit (groupTargets ts)
 
@@ -57,10 +57,11 @@ spec = describe "HoogleQuery.ResultSorting" $ do
       ts <- forAll Gen.targets
       let candidateFor g = find ((== groupKey g) . groupKey) (candidates cfg ts)
       mapM_
-        (\g -> do
+        ( \g -> do
             let primary = NonEmpty.head g
             assert $ not (any (isPinned cfg) g) || isPinned cfg primary
-            Just (NonEmpty.tail g) === fmap (delete primary . toList) (candidateFor g))
+            Just (NonEmpty.tail g) === fmap (delete primary . toList) (candidateFor g)
+        )
         (rankResults cfg ts)
 
     describe "examples" $ do
@@ -72,35 +73,44 @@ spec = describe "HoogleQuery.ResultSorting" $ do
           items = map (map targetItem . toList)
 
       it "nudges a pinned package ahead of more relevant results" $
-        items (rankResults defaultConfig { configPinnedPackages = Set.fromList ["base"] }
-                 [containers "lookup", text "pack", base "map"])
+        items
+          ( rankResults
+              defaultConfig{configPinnedPackages = Set.fromList ["base"]}
+              [containers "lookup", text "pack", base "map"]
+          )
           `shouldBe` [["map"], ["lookup"], ["pack"]]
 
       it "does not promote pinned results from outside the relevance window" $ do
         let ts = map (text . show) [1 .. 6 :: Int] <> [base "map"]
-            cfg = defaultConfig
-              { configMaxResults = 3
-              , configRelevanceWindow = Just 6
-              , configPinnedPackages = Set.fromList ["base"]
-              }
+            cfg =
+              defaultConfig
+                { configMaxResults = 3
+                , configRelevanceWindow = Just 6
+                , configPinnedPackages = Set.fromList ["base"]
+                }
         items (rankResults cfg ts) `shouldBe` [["1"], ["2"], ["3"]]
 
       it "makes the pinned copy of a re-exported item the primary" $
-        map (map targetPackage . toList)
-          (rankResults defaultConfig { configPinnedPackages = Set.fromList ["containers"] }
-             [rio "lookup", containers "lookup"])
+        map
+          (map targetPackage . toList)
+          ( rankResults
+              defaultConfig{configPinnedPackages = Set.fromList ["containers"]}
+              [rio "lookup", containers "lookup"]
+          )
           `shouldBe` [map targetPackage [containers "lookup", rio "lookup"]]
 
       it "keeps an item whose other copies are in a hidden package" $
-        rankResults defaultConfig { configHiddenPackages = Set.fromList ["relude"] }
+        rankResults
+          defaultConfig{configHiddenPackages = Set.fromList ["relude"]}
           [relude "mapM_", base "mapM_"]
           `shouldBe` [pure (base "mapM_")]
 
       it "hides a package that is also pinned" $
-        rankResults defaultConfig
-          { configPinnedPackages = Set.fromList ["relude"]
-          , configHiddenPackages = Set.fromList ["relude"]
-          }
+        rankResults
+          defaultConfig
+            { configPinnedPackages = Set.fromList ["relude"]
+            , configHiddenPackages = Set.fromList ["relude"]
+            }
           [relude "mapM_", text "pack"]
           `shouldBe` [pure (text "pack")]
 
@@ -123,5 +133,5 @@ isHidden = inPackages . configHiddenPackages
 candidates :: RofiHoogleConfig -> [Target] -> [NonEmpty Target]
 candidates cfg =
   take (effectiveRelevanceWindow cfg)
-  . mapMaybe (NonEmpty.nonEmpty . filter (not . isHidden cfg) . toList)
-  . groupTargets
+    . mapMaybe (NonEmpty.nonEmpty . filter (not . isHidden cfg) . toList)
+    . groupTargets

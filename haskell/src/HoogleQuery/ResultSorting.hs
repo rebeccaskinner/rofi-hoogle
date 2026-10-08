@@ -11,7 +11,7 @@ module HoogleQuery.ResultSorting
   ) where
 
 import Data.List (partition, sortOn)
-import Data.List.NonEmpty (NonEmpty(..))
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
@@ -24,7 +24,7 @@ import HoogleQuery.Config
 -- matches how Hoogle's web UI groups duplicates.
 locationless :: Target -> Target
 locationless target =
-  target { targetURL = "", targetPackage = Nothing, targetModule = Nothing }
+  target{targetURL = "", targetPackage = Nothing, targetModule = Nothing}
 
 -- | The package a target belongs to; 'Nothing' for results that are packages.
 targetPackageName :: Target -> Maybe String
@@ -35,15 +35,15 @@ targetPackageName = fmap fst . targetPackage
 groupTargets :: [Target] -> [NonEmpty Target]
 groupTargets =
   map (NonEmpty.reverse . snd)
-  . sortOn fst
-  . Map.elems
-  . Map.fromListWith mergeGroups
-  . zipWith (\index target -> (locationless target, (index, target :| []))) [0 :: Int ..]
-  where
-    -- fromListWith passes the later entry first. Keep the earliest index and
-    -- build each group in reverse so that adding a target is O(1).
-    mergeGroups :: (Int, NonEmpty Target) -> (Int, NonEmpty Target) -> (Int, NonEmpty Target)
-    mergeGroups (_, later) (firstIndex, earlier) = (firstIndex, later <> earlier)
+    . sortOn fst
+    . Map.elems
+    . Map.fromListWith mergeGroups
+    . zipWith (\index target -> (locationless target, (index, target :| []))) [0 :: Int ..]
+ where
+  -- fromListWith passes the later entry first. Keep the earliest index and
+  -- build each group in reverse so that adding a target is O(1).
+  mergeGroups :: (Int, NonEmpty Target) -> (Int, NonEmpty Target) -> (Int, NonEmpty Target)
+  mergeGroups (_, later) (firstIndex, earlier) = (firstIndex, later <> earlier)
 
 -- | Applies the config to Hoogle's results:
 --
@@ -56,20 +56,20 @@ groupTargets =
 rankResults :: RofiHoogleConfig -> [Target] -> [NonEmpty Target]
 rankResults cfg =
   take (configMaxResults cfg)
-  . pinToFront
-  . take (effectiveRelevanceWindow cfg)
-  . mapMaybe (NonEmpty.nonEmpty . NonEmpty.filter (not . isHidden))
-  . groupTargets
-  where
-    inPackages packages = maybe False (`Set.member` packages) . targetPackageName
-    isPinned = inPackages (configPinnedPackages cfg)
-    isHidden = inPackages (configHiddenPackages cfg)
+    . pinToFront
+    . take (effectiveRelevanceWindow cfg)
+    . mapMaybe (NonEmpty.nonEmpty . NonEmpty.filter (not . isHidden))
+    . groupTargets
+ where
+  inPackages packages = maybe False (`Set.member` packages) . targetPackageName
+  isPinned = inPackages (configPinnedPackages cfg)
+  isHidden = inPackages (configHiddenPackages cfg)
 
-    pinToFront groups =
-      let (pinned, rest) = partition (any isPinned) groups
-      in map promotePinned pinned <> rest
+  pinToFront groups =
+    let (pinned, rest) = partition (any isPinned) groups
+    in map promotePinned pinned <> rest
 
-    promotePinned group =
-      case break isPinned (NonEmpty.toList group) of
-        (before, p : after) -> p :| (before <> after)
-        (_, [])             -> group
+  promotePinned group =
+    case break isPinned (NonEmpty.toList group) of
+      (before, p : after) -> p :| (before <> after)
+      (_, []) -> group
