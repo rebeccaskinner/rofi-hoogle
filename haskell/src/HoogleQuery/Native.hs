@@ -7,6 +7,7 @@
 
 module HoogleQuery.Native where
 import PangoUtils
+import           HoogleQuery.Config
 import           HoogleQuery.ResultSorting
 import           HoogleQuery.SearchHoogle
 import Data.Text.Lazy qualified as LazyText
@@ -169,15 +170,15 @@ hoogleSearchResultFromListPtr (primary:rest) = do
 -- Phantom type tag for Ptr HoogleSearchState. The C struct is:
 --   struct hoogle_search_state {
 --     unsigned int result_count;
---     char *query_error;             // NULL if no error
+--     char *message;                 // NULL if there is nothing to show
 --     hoogle_search_result_t results[];
 --   };
 -- It's variable-size, so there's no Storable instance; allocation and access
 -- go through the helpers below.
 data HoogleSearchState
 
-hoogleSearchStateQueryErrorOffset :: Int
-hoogleSearchStateQueryErrorOffset =
+hoogleSearchStateMessageOffset :: Int
+hoogleSearchStateMessageOffset =
   let a = alignment @CString undefined
       rawEnd = sizeOf @CUInt undefined
   in ((rawEnd + a - 1) `div` a) * a
@@ -185,7 +186,7 @@ hoogleSearchStateQueryErrorOffset =
 hoogleSearchStateResultsOffset :: Int
 hoogleSearchStateResultsOffset =
   let a = alignment @HoogleSearchResult undefined
-      rawEnd = hoogleSearchStateQueryErrorOffset + sizeOf @CString undefined
+      rawEnd = hoogleSearchStateMessageOffset + sizeOf @CString undefined
   in ((rawEnd + a - 1) `div` a) * a
 
 hoogleSearchStateAllocSize :: Int -> Int
@@ -200,37 +201,30 @@ freeHoogleSearchState p
   | p == nullPtr = pure ()
   | otherwise = do
       count <- peek (castPtr p) :: IO CUInt
-      errStr <- peekByteOff p hoogleSearchStateQueryErrorOffset :: IO CString
-      when (errStr /= nullPtr) $ free errStr
+      msgStr <- peekByteOff p hoogleSearchStateMessageOffset :: IO CString
+      when (msgStr /= nullPtr) $ free msgStr
       let arr = hoogleSearchStateResults p
       for_ [0 .. fromIntegral count - 1] $ \i ->
         peekElemOff arr i >>= freeHoogleSearchResult
       free p
 
+-- Builds a search state from already-ranked result groups. The message (e.g.
+-- a DB-load error or a config warning) is read by plugin.c in _get_message
+-- and rendered in place of the usage hint.
+--
 -- Always returns a non-null pointer (even for an empty result set) so the C
 -- side can swap private_data in lockstep with us freeing the previous state.
-hoogleSearchStateFromList :: [Target] -> IO (Ptr HoogleSearchState)
-hoogleSearchStateFromList targets = do
-  let nonEmptyGroups = mapMaybe NonEmpty.nonEmpty (sortTargets targets)
-      resultCount = length nonEmptyGroups
+newHoogleSearchState :: Maybe String -> [NonEmpty.NonEmpty Target] -> IO (Ptr HoogleSearchState)
+newHoogleSearchState message groups = do
+  let resultCount = length groups
   p <- mallocBytes (hoogleSearchStateAllocSize resultCount)
   poke (castPtr p :: Ptr CUInt) (fromIntegral resultCount)
-  pokeByteOff p hoogleSearchStateQueryErrorOffset (nullPtr :: CString)
+  msgStr <- maybeCString message
+  pokeByteOff p hoogleSearchStateMessageOffset msgStr
   let arr = hoogleSearchStateResults (castPtr p)
-  for_ (zip [0..] nonEmptyGroups) $ \(i, neGroup) -> do
-    sr <- hoogleSearchResultFromList neGroup
+  for_ (zip [0..] groups) $ \(i, group) -> do
+    sr <- hoogleSearchResultFromList group
     pokeElemOff arr i sr
-  pure (castPtr p)
-
--- Builds a search state carrying a query error (e.g. the DB failed to load).
--- result_count is 0 and the results array is empty; plugin.c reads query_error
--- in _get_message and renders it in place of the usage hint.
-hoogleSearchStateFromError :: String -> IO (Ptr HoogleSearchState)
-hoogleSearchStateFromError msg = do
-  p <- mallocBytes (hoogleSearchStateAllocSize 0)
-  poke (castPtr p :: Ptr CUInt) 0
-  errStr <- newCString msg
-  pokeByteOff p hoogleSearchStateQueryErrorOffset errStr
   pure (castPtr p)
 
 -- Holds the active search state pointer; not freed at hs_exit because the
@@ -264,12 +258,19 @@ searchHandle = unsafePerformIO $
   newIORef (Left (DBLoadError "search worker not initialized"))
 {-# NOINLINE searchHandle #-}
 
--- Spawns the worker thread inside withDatabase, then blocks until the worker
--- either reports the queue handle (DB loaded) or reports a load error.
--- The result is stashed in searchHandle for preprocessInput / initialState
--- to consult.
+-- The user's config, and a warning to show if it couldn't be loaded (in which
+-- case the config is the default). Set once by initSearchWorker.
+searchConfig :: IORef (RofiHoogleConfig, Maybe String)
+searchConfig = unsafePerformIO $ newIORef (defaultConfig, Nothing)
+{-# NOINLINE searchConfig #-}
+
+-- Loads the config, spawns the worker thread inside withDatabase, then blocks
+-- until the worker either reports the queue handle (DB loaded) or reports a
+-- load error. The results are stashed in searchConfig and searchHandle for
+-- preprocessInput / initialState to consult.
 initSearchWorker :: IO ()
 initSearchWorker = do
+  loadConfig >>= writeIORef searchConfig
   resultMVar <- newEmptyMVar
   let runWorker :: Database -> IO ()
       runWorker db = do
@@ -296,15 +297,21 @@ queryViaWorker (SearchQueue qs) q = do
   atomically $ writeTBQueue qs (q, reply)
   takeMVar reply
 
--- Called from mode_init so the DB-load error is visible in the rofi prompt
--- before the user types anything. Returns nullPtr when the DB loaded cleanly.
+-- A state with no results that shows the DB-load error, if any.
+dbErrorState :: DBLoadError -> IO (Ptr HoogleSearchState)
+dbErrorState (DBLoadError msg) = newHoogleSearchState (Just msg) [] >>= updateResults'
+
+-- Called from mode_init so a DB-load error or config warning is visible in
+-- the rofi prompt before the user types anything. Returns nullPtr when there
+-- is nothing to report.
 initialState :: IO (Ptr HoogleSearchState)
 initialState = do
   handle <- readIORef searchHandle
-  case handle of
-    Left (DBLoadError msg) ->
-      hoogleSearchStateFromError msg >>= updateResults'
-    Right _ -> pure nullPtr
+  (_, configWarning) <- readIORef searchConfig
+  case (handle, configWarning) of
+    (Left err, _)     -> dbErrorState err
+    (Right _, Just w) -> newHoogleSearchState (Just w) [] >>= updateResults'
+    (Right _, Nothing) -> pure nullPtr
 
 foreign export ccall "hs_initial_state" initialState :: IO (Ptr HoogleSearchState)
 
@@ -326,8 +333,7 @@ preprocessInput input = do
       writeIORef lastQuery input'
       handle <- readIORef searchHandle
       case handle of
-        Left (DBLoadError msg) ->
-          hoogleSearchStateFromError msg >>= updateResults'
+        Left err -> dbErrorState err
         Right q
           | shouldSearchString input' -> do
               targets <- queryViaWorker q input'
@@ -335,5 +341,6 @@ preprocessInput input = do
           | otherwise -> pure nullPtr
 
 updateSearchResults :: [Target] -> IO (Ptr HoogleSearchState)
-updateSearchResults targets =
-  hoogleSearchStateFromList targets >>= updateResults'
+updateSearchResults targets = do
+  (cfg, configWarning) <- readIORef searchConfig
+  newHoogleSearchState configWarning (rankResults cfg targets) >>= updateResults'

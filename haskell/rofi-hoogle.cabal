@@ -24,12 +24,15 @@ library
                   , hoogle
                   , bytestring
                   , containers
-                  , unordered-containers
+                  , aeson
+                  , directory
+                  , filepath
                   , stm
                   , text
                   , html-entities
     exposed-modules: HoogleQuery
                    , HoogleQuery.SearchHoogle
+                   , HoogleQuery.Config
                    , HoogleQuery.ResultSorting
                    , PangoUtils
 
@@ -41,6 +44,7 @@ foreign-library rofi-hoogle-native
 
     other-modules:    HoogleQuery.Native
                     , HoogleQuery.SearchHoogle
+                    , HoogleQuery.Config
                     , HoogleQuery.ResultSorting
                     , PangoUtils
 
@@ -54,10 +58,32 @@ foreign-library rofi-hoogle-native
                     , hoogle
                     , bytestring
                     , containers
-                    , unordered-containers
+                    , aeson
+                    , directory
+                    , filepath
                     , stm
                     , text
                     , html-entities
     hs-source-dirs:   src
     c-sources:        csrc/wrapper.c
+    default-language: Haskell2010
+
+test-suite rofi-hoogle-test
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    other-modules:    Gen
+                    , HoogleQuery.ConfigSpec
+                    , HoogleQuery.ResultSortingSpec
+    build-depends:    base
+                    , rofi-hoogle-hs
+                    , hoogle
+                    , aeson
+                    , bytestring
+                    , containers
+                    , filepath
+                    , hedgehog
+                    , hspec
+                    , hspec-hedgehog
+                    , temporary
+    hs-source-dirs:   test
     default-language: Haskell2010

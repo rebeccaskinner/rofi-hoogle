@@ -1,123 +1,75 @@
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE ImportQualifiedPost        #-}
-module HoogleQuery.ResultSorting where
+{-# LANGUAGE ImportQualifiedPost #-}
+
+-- | Turns Hoogle's results into the rows shown in rofi. Hoogle's relevance
+-- order is the baseline; the user's config only hides packages and nudges
+-- pinned packages up within the most relevant results.
+module HoogleQuery.ResultSorting
+  ( locationless
+  , targetPackageName
+  , groupTargets
+  , rankResults
+  ) where
+
+import Data.List (partition, sortOn)
+import Data.List.NonEmpty (NonEmpty(..))
+import Data.List.NonEmpty qualified as NonEmpty
+import Data.Map.Strict qualified as Map
+import Data.Maybe (mapMaybe)
+import Data.Set qualified as Set
 import Hoogle
-import Data.Maybe
-import Data.List
-import Data.Ord
-import qualified Data.HashMap.Strict as HashMap
-import qualified Data.Map.Strict as Map
+import HoogleQuery.Config
 
-data PackageType
-  = PackageTypeBase
-  | PackageTypeCoreLibrary
-  | PackageTypeGHCLibrary
-  | PackageTypePopularLibrary
-  | PackageTypeOtherLibrary
-  deriving (Eq, Ord, Enum, Show)
+-- | A target with its location removed. Targets with the same 'locationless'
+-- value are the same item found in different places (e.g. re-exports); this
+-- matches how Hoogle's web UI groups duplicates.
+locationless :: Target -> Target
+locationless target =
+  target { targetURL = "", targetPackage = Nothing, targetModule = Nothing }
 
-newtype PackageClassification = PackageClassification
-  { getClassifications :: HashMap.HashMap String PackageType }
-  deriving newtype (Semigroup, Monoid)
+-- | The package a target belongs to; 'Nothing' for results that are packages.
+targetPackageName :: Target -> Maybe String
+targetPackageName = fmap fst . targetPackage
 
-defaultPackageClassification :: PackageClassification
-defaultPackageClassification =
-  PackageClassification . HashMap.fromList $
-  [ ("base", PackageTypeBase)
-  -- core libraries
-  , ("array", PackageTypeCoreLibrary)
-  , ("deepseq", PackageTypeCoreLibrary)
-  , ("directory", PackageTypeCoreLibrary)
-  , ("filepath", PackageTypeCoreLibrary)
-  , ("mtl", PackageTypeCoreLibrary)
-  , ("primitive", PackageTypeCoreLibrary)
-  , ("process", PackageTypeCoreLibrary)
-  , ("stm", PackageTypeCoreLibrary)
-  , ("template-haskell", PackageTypeCoreLibrary)
-  , ("unix", PackageTypeCoreLibrary)
-  , ("vector", PackageTypeCoreLibrary)
-  , ("Win32", PackageTypeCoreLibrary)
-  -- Non-Core libraries that ship with GHC
-  , ("containers", PackageTypeGHCLibrary)
-  , ("hoopl", PackageTypeGHCLibrary)
-  , ("pretty", PackageTypeGHCLibrary)
-  , ("time", PackageTypeGHCLibrary)
-  , ("xhtml", PackageTypeGHCLibrary)
-  , ("ghc-prim", PackageTypeGHCLibrary)
-  , ("hpc", PackageTypeGHCLibrary)
-  -- Popular libraries that should be prioritized in search results,
-  -- not based on any particular strong evidence, but with a slight
-  -- bias toward "low-level" things, things with a lot of operators,
-  -- or things I happen to be using lately. Not necessarily an
-  -- endorsement.
-  , ("aeson", PackageTypePopularLibrary)
-  , ("bytestring", PackageTypePopularLibrary)
-  , ("text", PackageTypePopularLibrary)
-  , ("network", PackageTypePopularLibrary)
-  , ("attoparsec", PackageTypePopularLibrary)
-  , ("megaparsec", PackageTypePopularLibrary)
-  , ("rio", PackageTypePopularLibrary)
-  , ("relude", PackageTypePopularLibrary)
-  , ("mono-traversable", PackageTypePopularLibrary)
-  , ("warp", PackageTypePopularLibrary)
-  , ("servant", PackageTypePopularLibrary)
-  , ("pandoc", PackageTypePopularLibrary)
-  , ("random", PackageTypePopularLibrary)
-  , ("lens", PackageTypePopularLibrary)
-  , ("cryptonite", PackageTypePopularLibrary)
-  , ("HTTP", PackageTypePopularLibrary)
-  , ("optparse-applicative", PackageTypePopularLibrary)
-  , ("transformers", PackageTypePopularLibrary)
-  , ("http-types", PackageTypePopularLibrary)
-  , ("foundation", PackageTypePopularLibrary)
-  , ("wai", PackageTypePopularLibrary)
-  , ("parsec", PackageTypePopularLibrary)
-  , ("parallel", PackageTypePopularLibrary)
-  , ("persistent", PackageTypePopularLibrary)
-  , ("esqueleto", PackageTypePopularLibrary)
-  , ("unliftio", PackageTypePopularLibrary)
-  , ("unliftio-core", PackageTypePopularLibrary)
-  ]
-
-classifyPackage :: PackageClassification -> String -> PackageType
-classifyPackage (PackageClassification classifications) pkgName =
-  fromMaybe PackageTypeOtherLibrary $ HashMap.lookup pkgName classifications
-
-sortTargetsByClassification :: [Target] -> [Target]
-sortTargetsByClassification =
-  sortOn (classifyPackage defaultPackageClassification . maybe "" fst . targetPackage)
-
--- | Groups targets that refer to the same item in different locations (e.g. a
--- function and its re-exports), as Hoogle's web UI does. Within a group, the
--- target from the highest-priority package comes first and becomes the primary
--- result. Groups are ordered by that package's classification, with ties kept
--- in Hoogle's relevance order.
-sortTargets :: [Target] -> [[Target]]
-sortTargets =
-  map snd
+-- | Groups targets by 'locationless'. Groups are ordered by where their first
+-- target appeared, and targets within a group keep their relative order.
+groupTargets :: [Target] -> [NonEmpty Target]
+groupTargets =
+  map (NonEmpty.reverse . snd)
   . sortOn fst
-  . map rankGroup
   . Map.elems
   . Map.fromListWith mergeGroups
-  . zipWith (\index target -> (locationless target, (index, [target]))) [0 :: Int ..]
+  . zipWith (\index target -> (locationless target, (index, target :| []))) [0 :: Int ..]
   where
-    locationless :: Target -> Target
-    locationless target =
-      target { targetURL = "", targetPackage = Nothing, targetModule = Nothing }
+    -- fromListWith passes the later entry first. Keep the earliest index and
+    -- build each group in reverse so that adding a target is O(1).
+    mergeGroups :: (Int, NonEmpty Target) -> (Int, NonEmpty Target) -> (Int, NonEmpty Target)
+    mergeGroups (_, later) (firstIndex, earlier) = (firstIndex, later <> earlier)
 
-    -- fromListWith passes the later entry first; keep the earliest index and
-    -- the original relative order of the group's targets.
-    mergeGroups :: (Int, [Target]) -> (Int, [Target]) -> (Int, [Target])
-    mergeGroups (_, later) (firstIndex, earlier) = (firstIndex, earlier <> later)
+-- | Applies the config to Hoogle's results:
+--
+-- 1. group duplicates ('groupTargets'), keeping Hoogle's order
+-- 2. drop targets from hidden packages, and any groups left empty
+-- 3. keep the first 'effectiveRelevanceWindow' groups
+-- 4. move groups containing a pinned package to the front, keeping Hoogle's
+--    order otherwise; the first pinned target in a group becomes its primary
+-- 5. keep the first 'configMaxResults' groups
+rankResults :: RofiHoogleConfig -> [Target] -> [NonEmpty Target]
+rankResults cfg =
+  take (configMaxResults cfg)
+  . pinToFront
+  . take (effectiveRelevanceWindow cfg)
+  . mapMaybe (NonEmpty.nonEmpty . NonEmpty.filter (not . isHidden))
+  . groupTargets
+  where
+    inPackages packages = maybe False (`Set.member` packages) . targetPackageName
+    isPinned = inPackages (configPinnedPackages cfg)
+    isHidden = inPackages (configHiddenPackages cfg)
 
-    rankGroup :: (Int, [Target]) -> ((PackageType, Int), [Target])
-    rankGroup (firstIndex, group) =
-      let sorted = sortTargetsByClassification group
-      in ((classifyTargetSet sorted, firstIndex), sorted)
+    pinToFront groups =
+      let (pinned, rest) = partition (any isPinned) groups
+      in map promotePinned pinned <> rest
 
-    classifyTargetSet :: [Target] -> PackageType
-    classifyTargetSet [] = PackageTypeOtherLibrary
-    classifyTargetSet(t:_) =
-      let n = maybe "" fst (targetPackage t)
-      in classifyPackage defaultPackageClassification n
+    promotePinned group =
+      case break isPinned (NonEmpty.toList group) of
+        (before, p : after) -> p :| (before <> after)
+        (_, [])             -> group

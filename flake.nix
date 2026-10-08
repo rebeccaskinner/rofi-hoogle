@@ -44,7 +44,9 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.haskellPackages.shellFor {
           packages = _: [ pkgs.hs-hoogle-query ];
-          buildInputs = pkgs.rofi-hoogle.buildInputs;
+          # Leave out the built Haskell library so a compile error in it
+          # doesn't prevent entering the shell to fix it.
+          buildInputs = pkgs.lib.remove pkgs.hs-hoogle-query pkgs.rofi-hoogle.buildInputs;
           nativeBuildInputs =
             pkgs.rofi-hoogle.nativeBuildInputs
             ++ (with pkgs; [

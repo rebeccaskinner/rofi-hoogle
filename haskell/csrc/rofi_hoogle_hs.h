@@ -27,7 +27,7 @@ typedef struct hoogle_search_result hoogle_search_result_t;
 
 struct hoogle_search_state {
   unsigned int result_count;
-  char *query_error; // NULL if no error
+  char *message; // shown in place of the usage hint; NULL if none
   hoogle_search_result_t results[];
 };
 

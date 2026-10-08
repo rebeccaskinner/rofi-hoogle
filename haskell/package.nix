@@ -1,14 +1,20 @@
 {
   mkDerivation,
   lib,
+  aeson,
   base,
   bytestring,
   containers,
+  directory,
+  filepath,
+  hedgehog,
   hoogle,
+  hspec,
+  hspec-hedgehog,
   html-entities,
   stm,
+  temporary,
   text,
-  unordered-containers,
 }:
 
 mkDerivation {
@@ -22,17 +28,32 @@ mkDerivation {
       ./LICENSE
       ./src
       ./csrc
+      ./test
     ];
   };
   libraryHaskellDepends = [
+    aeson
     base
     bytestring
     containers
+    directory
+    filepath
     hoogle
     html-entities
     stm
     text
-    unordered-containers
+  ];
+  testHaskellDepends = [
+    aeson
+    base
+    bytestring
+    containers
+    filepath
+    hedgehog
+    hoogle
+    hspec
+    hspec-hedgehog
+    temporary
   ];
   license = lib.licenses.bsd3;
   postInstall = ''

@@ -187,8 +187,8 @@ static int hoogle_plugin_token_match(
 /* formats and displays a mardown rendering of the final result */
 static char *hoogle_plugin_get_message(const Mode *sw) {
    hoogle_search_state_t *private_data = mode_get_private_data(sw);
-   if (NULL != private_data && NULL != private_data->query_error) {
-     return g_markup_escape_text(private_data->query_error, -1);
+   if (NULL != private_data && NULL != private_data->message) {
+     return g_markup_escape_text(private_data->message, -1);
    }
    return g_strdup("search must be at least 15 characters (end with two spaces to search early)");
 }
